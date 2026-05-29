@@ -18,3 +18,8 @@ experiments/*.png
 experiments/*.log
 experiments/*.json
 
+# compiled attention extension (keep the csrc sources, drop build outputs)
+mxalloy/attention/_ext*.so
+mxalloy/attention/*.metallib
+mxalloy/attention/csrc/build/
+

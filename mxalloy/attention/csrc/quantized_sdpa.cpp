@@ -7,15 +7,35 @@
 
 #include "quantized_sdpa.h"
 
+#include <dlfcn.h>
+
 #include <sstream>
+#include <string>
 #include <typeinfo>
 
 #include <mlx/backend/metal/device.h>
 #include <mlx/backend/metal/utils.h>  // type_to_name
+#include <mlx/fast.h>                  // fast::scaled_dot_product_attention
 #include <mlx/ops.h>                   // dequantize
 #include <mlx/utils.h>                 // to_stream
 
 namespace mxalloy::ext {
+
+namespace {
+// Anchor whose address resolves to this .so, so we can locate the metallib that the build
+// places beside it (get_kernel needs the library loaded from an explicit path).
+void mxalloy_anchor() {}
+
+std::string this_lib_dir() {
+  Dl_info info;
+  if (dladdr(reinterpret_cast<void*>(&mxalloy_anchor), &info) && info.dli_fname) {
+    std::string p(info.dli_fname);
+    auto pos = p.find_last_of('/');
+    return pos == std::string::npos ? std::string(".") : p.substr(0, pos);
+  }
+  return ".";
+}
+}  // namespace
 
 // ---- public factory: assemble inputs + fallback graph, return the node -----------------
 array quantized_scaled_dot_product_attention(
@@ -41,8 +61,8 @@ array quantized_scaled_dot_product_attention(
     auto k = dequantize(in[1], in[2], in[3], group_size, bits);
     auto v = dequantize(in[4], in[5], in[6], group_size, bits);
     std::optional<array> m = has_mask ? std::optional<array>(in[7]) : std::nullopt;
-    // NOTE: confirm fast::scaled_dot_product_attention's mask param type in fast.h.
-    return {fast::scaled_dot_product_attention(in[0], k, v, scale, m)};
+    // signature: (q, k, v, scale, mask_mode, mask_arr, sinks, stream)
+    return {fast::scaled_dot_product_attention(in[0], k, v, scale, "", m)};
   };
 
   std::vector<array> inputs = {q, k_w, k_s, k_b, v_w, v_s, v_b};
@@ -60,17 +80,17 @@ array quantized_scaled_dot_product_attention(
       q.shape(),
       q.dtype(),
       std::make_shared<QuantizedScaledDotProductAttention>(
-          s, fallback, scale, group_size, bits, mask.has_value()),
+          s, scale, group_size, bits, mask.has_value()),
       inputs);
 }
 
 bool QuantizedScaledDotProductAttention::use_fallback(
-    const array& q, int head_dim, int group_size, int bits, bool /*has_mask*/, Stream s) {
-  if (s.device == Device::cpu) {
-    return true;
+    const array& q, int head_dim, int group_size, int bits, bool has_mask, Stream s) {
+  if (s.device == Device::cpu || has_mask) {
+    return true;  // v1: no CPU kernel, no masking yet
   }
   // Only the configs with a matching [[host_name]] in quantized_sdpa.metal can run.
-  const bool dt = (q.dtype() == float16 || q.dtype() == bfloat16);
+  const bool dt = (q.dtype() == float16);  // v1 fp16 only; bfloat + the MMA pass come next
   const bool d_ok = (head_dim == 128);
   const bool b_ok = (bits == 8 || bits == 4);  // 8-bit is the default target; 4-bit optional
   const bool g_ok = (group_size == 32 || group_size == 64 || group_size == 128);
@@ -102,28 +122,34 @@ void QuantizedScaledDotProductAttention::eval_gpu(
   const int D = static_cast<int>(qs[qs.size() - 1]);
   const int S = static_cast<int>(inputs[2].shape()[inputs[2].ndim() - 2]);  // k_scales rows
 
-  // Entry-point name must equal a [[host_name(...)]] in the .metal; "mxalloy_ext" = metallib.
+  // Entry-point name must equal a [[host_name(...)]] in the .metal; load our metallib from
+  // beside this .so (get_kernel's 2nd string arg is a hash name, not a library).
   std::ostringstream kn;
   kn << "mxalloy_qsdpa_" << type_to_name(q) << "_b" << bits_ << "_d" << D;
-  auto kernel = d.get_kernel(kn.str(), "mxalloy_ext");
+  static const std::string metallib_path = this_lib_dir() + "/mxalloy_ext.metallib";
+  auto* lib = d.get_library("mxalloy_ext", metallib_path);
+  auto* kernel = d.get_kernel(kn.str(), lib);
 
-  auto& enc = d.get_command_encoder(s.index);
+  auto& enc = metal::get_command_encoder(s);
   enc.set_compute_pipeline_state(kernel);
   for (size_t i = 0; i < inputs.size(); ++i) {
     enc.set_input_array(inputs[i], static_cast<int>(i));
   }
   enc.set_output_array(out, 7);  // buffer(7) in the kernel signature
 
+  // Layout must match QSDPAParams in quantized_sdpa.metal.
   struct QSDPAParams {
-    int B, H, L, S, D, group_size;
+    int B, H, L, S;
+    int group_size;
     float scale;
-    int has_mask, q_tile, k_tile;
-  } params{B, H, L, S, D, group_size_, scale_, has_mask_ ? 1 : 0, 64, 128};
+  } params{B, H, L, S, group_size_, scale_};
   enc.set_bytes(params, 8);
 
-  // TODO: tune. One threadgroup per (q-tile, batch*head); thread count per TG TBD.
-  MTL::Size tg = MTL::Size(128, 1, 1);
-  MTL::Size grid = MTL::Size((L + params.q_tile - 1) / params.q_tile, 1, B * H);
+  // v1: one thread per output row O[b,h,i,:]; guard handles the rounded-up tail.
+  const int total = B * H * L;
+  const int tg_size = 256;
+  MTL::Size tg = MTL::Size(tg_size, 1, 1);
+  MTL::Size grid = MTL::Size((total + tg_size - 1) / tg_size, 1, 1);
   enc.dispatch_threadgroups(grid, tg);
 }
 

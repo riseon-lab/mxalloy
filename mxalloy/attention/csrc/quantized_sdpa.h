@@ -1,23 +1,17 @@
 // Fused quantized-KV scaled-dot-product attention -- MLX custom primitive (declaration).
 //
-// SKELETON. Structure is grounded in the installed MLX 0.31 headers
-// (mlx/fast_primitives.h: `ScaledDotProductAttention`/`RoPE` derive from `fast::Custom`),
-// but exact backend-encoder signatures evolve between MLX releases -- before building,
-// diff this against the canonical extension example that ships with MLX
-// (`mlx/examples/extensions`, the "axpby" primitive) and the headers under
-// `<site-packages>/mlx/include/mlx/`.
-//
-// Why `fast::Custom`: it carries a *fallback* graph (here: dequantize K/V -> SDPA) that MLX
-// runs whenever `eval_gpu` is inapplicable (CPU stream, unsupported dtype/head_dim/bits).
-// So the op is always correct; the metallib kernel is a spike-free fast path layered on top.
+// Subclasses the exported mlx::core::Primitive directly (NOT fast::Custom -- that base is
+// not MLX_API-exported, so a third-party subclass can't link). The fallback (dequantize
+// K/V -> SDPA) is gated in the factory: when use_fallback() is true we return the fallback
+// graph and never construct this primitive, so eval_gpu only runs for supported GPU configs.
 
 #pragma once
 
-#include <functional>
 #include <optional>
 #include <vector>
 
-#include <mlx/fast_primitives.h>
+#include <mlx/primitives.h>
+#include <mlx/utils.h>  // StreamOrDevice
 
 namespace mxalloy::ext {
 
@@ -40,25 +34,19 @@ array quantized_scaled_dot_product_attention(
     const std::optional<array>& mask = std::nullopt,
     StreamOrDevice s = {});
 
-class QuantizedScaledDotProductAttention : public fast::Custom {
+class QuantizedScaledDotProductAttention : public Primitive {
  public:
   QuantizedScaledDotProductAttention(
-      Stream stream,
-      std::function<std::vector<array>(std::vector<array>)> fallback,
-      float scale,
-      int group_size,
-      int bits,
-      bool has_mask)
-      : Custom(stream, std::move(fallback)),
+      Stream stream, float scale, int group_size, int bits, bool has_mask)
+      : Primitive(stream),
         scale_(scale),
         group_size_(group_size),
         bits_(bits),
         has_mask_(has_mask) {}
 
-  // CPU is served by the fallback graph; only the GPU fast path is custom.
+  // Never constructed for a CPU stream (the factory falls back first), so CPU just throws.
   void eval_cpu(const std::vector<array>&, std::vector<array>&) override {
-    throw std::runtime_error(
-        "QuantizedSDPA: no CPU kernel; the fallback graph handles CPU.");
+    throw std::runtime_error("QuantizedSDPA: GPU-only; CPU goes through the fallback graph.");
   }
   void eval_gpu(const std::vector<array>& inputs, std::vector<array>& outputs)
       override;
