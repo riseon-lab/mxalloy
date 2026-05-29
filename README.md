@@ -5,7 +5,7 @@
 mxalloy loads, quantizes, and runs diffusion models on Apple Silicon with dramatically lower peak memory and no per-run reload. Two pieces:
 
 - **Engine** (`pip install mxalloy`) — open, embeddable, performance-first. The thing apps and serving layers run on.
-- **Surface** — a local Mac runner UI (forked from IgglePixel) that installs and runs MLX models on the engine, kept resident. A tester/on-ramp, not a consumer app.
+- **Surface** — a lean local Mac tester UI that installs and runs MLX models on the engine, with reference images, LoRAs, outputs, and local settings. IgglePixel is reference material, not the first UI fork.
 
 ## Why mxalloy
 
@@ -39,6 +39,7 @@ Full klein-4B load on an 18 GB Mac. End-to-end generation engine is in progress 
 - `mxalloy/integrations`: Hugging Face / ecosystem compatibility
 - `benchmarks`: repeatable performance and memory tests
 - `examples`: runnable scripts
+- `surface`: lean local tester UI for refs, LoRAs, settings, outputs, and mock generation
 - `docs`: design brief, build plan, versioning, errors
 - `experiments`: research spikes (incl. the streaming-loader benchmark)
 
@@ -53,4 +54,4 @@ Public API: the engine API (forming) + config dataclasses + `mxalloy.errors`. Ev
 
 ## Status
 
-Early. Streaming loader proven (3.89× lower peak than mflux). Next: promote the loader into `mxalloy`, then the resident klein generation graph, then the Mac surface. See `docs/DESIGN_BRIEF.md` and `docs/SCHEDULE.md`.
+Early. Streaming loader proven (3.89× lower peak than mflux). Next: resident klein generation graph, then a small local tester surface for model download, HF secrets, refs, LoRAs, generation controls, and output viewing. See `docs/DESIGN_BRIEF.md`, `docs/SCHEDULE.md`, and `docs/UI_PLAN.md`.

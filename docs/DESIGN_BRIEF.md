@@ -2,14 +2,14 @@
 
 ## What mxalloy Is
 
-mxalloy is an **open, embeddable, performance-first MLX inference engine for diffusion models on Apple Silicon** — plus a local **surface** (a Mac tester/runner UI) that installs and runs MLX models on top of it.
+mxalloy is an **open, embeddable, performance-first MLX inference engine for diffusion models on Apple Silicon** - plus a local **surface** (a lean Mac tester/runner UI) that installs and runs MLX models on top of it.
 
 Two pieces, two kinds of moat:
 
 1. **The engine** (`pip install mxalloy`) — the **technical moat**. Faster and dramatically leaner than the alternatives because of how it loads, quantizes, and keeps models resident. Built to be embedded by apps and serving layers.
-2. **The surface** (a forked, Mac-native runner UI) — the **distribution moat**. The frictionless way to install + run MLX diffusion models on a Mac, kept resident, with a curated registry of models that actually fit and work. A dogfooding/testing surface and on-ramp, not a consumer app.
+2. **The surface** (a lean, Mac-native tester UI) - the **distribution moat**. The frictionless way to install + run MLX diffusion models on a Mac, with a curated registry of models that actually fit and work. A dogfooding/testing surface and on-ramp, not a consumer app.
 
-Defensible position = **both together**: a competitor would need the lean engine *and* the polished surface *and* the curated working-model registry.
+Defensible position = **both together**: a competitor would need the lean engine *and* the focused local surface *and* the curated working-model registry.
 
 ## The Landscape (why this lane is open)
 
@@ -43,18 +43,18 @@ This turns "pinned at the 18 GB ceiling, thrashing" into "runs with ~13 GB to sp
 4. **Embeddable, stable, typed engine API.** The thing serving layers + apps standardize on.
 
 **Surface (distribution):**
-5. **Frictionless install-and-run** for MLX models on Mac, resident, with a curated registry of models that fit Apple Silicon. A fork of the proven IgglePixel architecture, adapted for mxalloy.
+5. **Frictionless install-and-run** for MLX models on Mac, with refs, LoRAs, outputs, local secrets, and a curated registry of models that fit Apple Silicon.
 
-## The Mac Surface (forked from IgglePixel)
+## The Local Surface
 
-Reuse IgglePixel's registry-driven architecture (vanilla-JS PWA + FastAPI + per-model runner subprocesses + `?preview` mock mode). Adaptations:
+Build a small mxalloy-native local tester first. Use IgglePixel as reference material for registry shape, runner lifecycle lessons, LoRA conventions, asset handling, and `?preview` mock mode, but do not fork the full product shell for 0.1.
 
-- **Runners call mxalloy (MLX)** instead of torch/diffusers.
-- **Resident, not evict-on-switch.** Keep the model warm; cold start only when the user *switches* models. Hot-swap LoRA without reload. (IgglePixel evicts to free VRAM — that would reintroduce the reload tax we're beating.)
-- **Unified-RAM tiers**, apple-silicon; quant = 4/8-bit MLX.
-- **Curate the registry to models that fit a Mac** — drop the high-VRAM RunPod models (LTX-2.3 22B, Wan 14B, HunyuanVideo, etc.).
-- **Drop at-rest encryption + moderation** — shared-pod concerns; this is a local single-user tester. Easily restored later.
-- Local launch, no RunPod boot/clone.
+- **Simple frontend.** Static HTML/vanilla JS or a tiny local app shell. Black/white/solid colour system, dense controls, no glass, no heavy styling, no landing page.
+- **Small FastAPI backend.** One local mxalloy engine manager; no RunPod launcher, auth gate, service worker, encryption, moderation, trainers, or CivitAI in Phase 1.
+- **Actual generation workspace first.** Prompt, negative prompt, refs, model/quant/memory mode, LoRA add/remove + strength, seed, size, steps, guidance, cancel, progress, logs, memory readout, and output viewer/gallery.
+- **Local secrets and paths.** Settings panel for HF token, model cache path, LoRA folder, and output folder. Store secrets backend-side only: macOS Keychain if practical, otherwise a `0600` local config file or ephemeral session mode.
+- **Resident/staged modes.** Keep the hottest feasible component warm; use staged loading when unified memory is tight. The UI should expose this as a memory mode, not hide it.
+- **Curated Mac registry.** Start with FLUX.2 klein 4B and 9B only; keep later model families out of the first tester until the engine path is proven.
 
 ## Phase 1 Success Criteria
 
@@ -66,7 +66,8 @@ Reuse IgglePixel's registry-driven architecture (vanilla-JS PWA + FastAPI + per-
 - Typed, documented public API; semver per `docs/VERSIONING.md`.
 
 **Surface:**
-- Fork runs locally, lists klein from a curated registry, downloads it, generates via the resident mxalloy runner.
+- Local tester runs on the Mac, lists klein from a curated registry, downloads it with an HF token if needed, and generates through the mxalloy engine manager.
+- UI includes refs, LoRA add/remove + strength, output viewer/gallery, logs/progress, memory status, and settings for HF token/cache/LoRA/output paths.
 - `?preview` mock mode works backend-less.
 
 ## Non-Goals (Phase 1)
@@ -95,5 +96,5 @@ See `docs/VERSIONING.md` (stable-within-minor) and `docs/ERRORS.md` (typed error
 mxalloy 0.1 succeeds if:
 - It generates klein-4B on an 18 GB Mac at a peak mflux can't touch, resident and warm.
 - A developer can `pip install mxalloy` and embed the engine.
-- The Mac surface lets you (and others) install + run it with no Python wrangling.
+- The local tester lets you (and others) install + run it with no Python wrangling.
 - Published, reproducible benchmarks back the performance claim.

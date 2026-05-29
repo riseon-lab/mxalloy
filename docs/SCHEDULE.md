@@ -4,7 +4,7 @@ Milestone-based. The old week-by-week FP16/FLUX.1 schedule is superseded by the 
 
 ## Hats
 - **Engine**: loader, MLX execution, quant, attention, resident runtime, LoRA.
-- **Surface**: the Mac runner UI (forked IgglePixel), registry, workspaces.
+- **Surface**: the lean local Mac tester UI, registry, refs, LoRAs, settings, outputs.
 - **Bench/QA**: benchmarks, tests, published numbers.
 
 ## Non-negotiables
@@ -30,10 +30,13 @@ Scaffold; per-input-channel INT8 quant + dequant + tests; exception hierarchy; v
 - LoRA on the quantized base, applied at runtime; hot-swap without reload; multi-LoRA.
 - **Done when**: load once, generate many; swap LoRAs in < 500 ms without reload; INT8 path runs on 18 GB.
 
-## M4 — Mac surface (fork IgglePixel)
-- Fork the IgglePixel shell + registry; runner = **resident mxalloy**; one image workspace.
-- Curate registry to Mac-fitting MLX models; unified-RAM tiers; drop encryption/moderation; keep `?preview`.
-- **Done when**: locally install + run klein from the UI via the resident engine; dogfooding happens here.
+## M4 — Local tester surface
+- Build a small mxalloy-native local tester: static HTML/vanilla JS or tiny app shell plus a small FastAPI backend.
+- Use IgglePixel as reference material for registry shape, runner lifecycle, LoRA conventions, assets, and `?preview`; do not fork the full product shell for 0.1.
+- First workspace: prompt/negative prompt, reference image slots, model/quant/memory mode, seed, dimensions, steps, guidance, LoRA add/remove + strength, cancel, progress/logs, memory status, and output viewer/gallery.
+- Settings/secrets: HF token, model cache path, LoRA folder, output folder. Store secrets backend-side only; no browser localStorage for tokens.
+- Exclude Phase 1 product weight: no CivitAI, auth gate, at-rest encryption, moderation, trainers, RunPod launcher, or multi-media catalogue.
+- **Done when**: locally install + run klein from the UI via the mxalloy engine manager, add a LoRA/reference image, view outputs, and configure HF/cache/LoRA/output settings; dogfooding happens here.
 
 ## M5 — Quant quality + memory-adaptive
 - Calibrated quant (data-aware scales, mixed precision); published PSNR/LPIPS vs bf16.
