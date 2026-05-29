@@ -1,0 +1,20 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+/outputs/
+/models/
+/checkpoints/
+*.safetensors
+
+# generated experiment artifacts (keep the .py scripts, drop the outputs)
+experiments/*.png
+experiments/*.log
+experiments/*.json
+
