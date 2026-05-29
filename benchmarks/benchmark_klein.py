@@ -1,10 +1,12 @@
 """Sweep mxalloy klein runtime + peak memory across resolutions and step counts.
 
 Loads the engine once (resident) and reuses it for every config — the warm path. For each
-(resolution, steps) it records wall-clock and peak memory. Configs whose *predicted* peak
-exceeds ``--budget-gb`` are skipped, so we don't thrash swap on a constrained machine;
-raise ``--budget-gb`` on a bigger machine to fill them in. Results stream to JSON so a
-crash or OOM-kill still preserves everything completed so far.
+(resolution, steps) it records wall-clock and peak memory. The engine tiles VAE decode by
+default (``--vae-tile`` latent px; ``0`` disables), which caps the decode peak so it
+plateaus rather than scaling with pixels — the predictor below accounts for that. Configs
+whose *predicted* peak exceeds ``--budget-gb`` are skipped, so we don't thrash swap on a
+constrained machine; raise ``--budget-gb`` on a bigger machine to fill them in. Results
+stream to JSON so a crash or OOM-kill still preserves everything completed so far.
 
     PYTHONPATH=. .venv/bin/python benchmarks/benchmark_klein.py --budget-gb 16
 """
@@ -51,6 +53,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--quantize", type=int, default=4)
     ap.add_argument("--budget-gb", type=float, default=16.0)
+    ap.add_argument(
+        "--vae-tile", type=int, default=128, help="VAE decode tile (latent px); 0 disables tiling"
+    )
     ap.add_argument("--output", default="experiments/benchmark_klein.json")
     ap.add_argument(
         "--resolutions", default=None, help="comma-separated WxH (default: built-in set)"
@@ -67,30 +72,38 @@ def main() -> None:
 
     print(
         f"device recommended working set: {_recommended_gb():.1f} GB  budget: {args.budget_gb} GB"
+        f"  vae_tile_latent: {args.vae_tile or None}"
     )
 
     mx.reset_peak_memory()
     t0 = time.perf_counter()
-    engine = Flux2KleinEngine(quantize_bits=args.quantize)
+    engine = Flux2KleinEngine(quantize_bits=args.quantize, vae_tile_latent=args.vae_tile or None)
     load_time = round(time.perf_counter() - t0, 1)
     load_peak = gb(mx.get_peak_memory())
     print(f"loaded in {load_time}s  load peak {load_peak} GB")
 
     results: dict = {
         "quantize_bits": args.quantize,
+        "vae_tile_latent": args.vae_tile or None,
         "budget_gb": args.budget_gb,
         "load_time_s": load_time,
         "load_peak_gb": load_peak,
         "runs": [],
     }
     observed: list[tuple[int, float]] = []
+    # Tiled decode caps activations at one (tile*8)px tile, so peak grows with pixels only
+    # up to that tile area, then plateaus. Clamp the pixel term to the tile area so the
+    # predictor stops extrapolating linearly above it (else it wrongly skips large configs).
+    tile_px = (args.vae_tile * 8) ** 2 if args.vae_tile else None
 
     def predict(pixels: int) -> float:
         if not observed:
             return 0.0
+        eff = (lambda p: min(p, tile_px)) if tile_px else (lambda p: p)
         px_max, peak_max = max(observed, key=lambda o: o[0])
-        slope = (peak_max - load_peak) / px_max if px_max else 0.0
-        return load_peak + slope * pixels
+        denom = eff(px_max)
+        slope = (peak_max - load_peak) / denom if denom else 0.0
+        return load_peak + slope * eff(pixels)
 
     configs = sorted(
         [(w, h, s) for (w, h) in resolutions for s in steps_list],

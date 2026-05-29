@@ -33,7 +33,16 @@ _TEXT_ENCODER_OUT_LAYERS = (9, 18, 27)
 
 
 class Flux2KleinEngine:
-    def __init__(self, model_dir: str | None = None, quantize_bits: int | None = 4):
+    def __init__(
+        self,
+        model_dir: str | None = None,
+        quantize_bits: int | None = 4,
+        vae_tile_latent: int | None = 128,
+    ):
+        # vae_tile_latent caps VAE-decode activations to a (tile*8)px region: 128 keeps
+        # <=1024**2 a single (bit-exact) tile while letting larger images tile to fit 18 GB.
+        # None disables tiling (full decode). Override upward on roomier machines.
+        self.vae_tile_latent = vae_tile_latent
         model_dir = model_dir or find_klein_model_dir()
         self.transformer = Flux2Transformer()
         self.text_encoder = Qwen3TextEncoder()
@@ -88,7 +97,7 @@ class Flux2KleinEngine:
         packed = latents.reshape(1, latent_height, latent_width, latents.shape[-1]).transpose(
             0, 3, 1, 2
         )
-        decoded = self.vae.decode_packed_latents(packed)
+        decoded = self.vae.decode_packed_latents(packed, tile_latent=self.vae_tile_latent)
         mx.eval(decoded)
         return self._to_pil(decoded)
 

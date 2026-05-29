@@ -17,6 +17,25 @@ from mlx import nn
 # klein weights are bfloat16.
 PRECISION = mx.bfloat16
 
+# The decoder upsamples the latent spatially by 8x.
+_DECODER_UPSCALE = 8
+
+
+def _feather(height: int, width: int, fade: int) -> mx.array:
+    """Separable ramp: ~1 in the tile centre, ramping to a small floor at the edges.
+
+    Used to blend overlapping decoded tiles. The floor stays > 0 so the per-pixel weight
+    sum is never zero (no division-by-zero), and a single tile covering the whole image
+    reduces to an exact decode (the mask cancels in the weighted average).
+    """
+
+    def ramp(n: int) -> mx.array:
+        idx = mx.arange(n, dtype=mx.float32)
+        dist = mx.minimum(idx, (n - 1) - idx) + 1.0
+        return mx.clip(dist / (fade + 1.0), 1.0 / (fade + 1.0), 1.0)
+
+    return (ramp(height)[:, None] * ramp(width)[None, :]).reshape(1, 1, height, width)
+
 
 class Flux2BatchNormStats(nn.Module):
     def __init__(self, num_features: int, eps: float = 1e-4, momentum: float = 0.1):
@@ -245,23 +264,71 @@ class Flux2VAE(nn.Module):
         )
         self.bn = Flux2BatchNormStats(num_features=4 * self.latent_channels, eps=1e-4, momentum=0.1)
 
-    def decode(self, latents: mx.array) -> mx.array:
+    def decode(self, latents: mx.array, tile_latent: int | None = None) -> mx.array:
         if latents.ndim == 5:
             latents = latents[:, :, 0, :, :]
         latents = (latents / self.scaling_factor) + self.shift_factor
         latents = mx.transpose(latents, (0, 2, 3, 1))
         latents = self.post_quant_conv(latents)
-        latents = mx.transpose(latents, (0, 3, 1, 2))
-        return self.decoder(latents)
+        z = mx.transpose(latents, (0, 3, 1, 2))
+        if tile_latent is None:
+            return self.decoder(z)
+        return self._decode_tiled(z, tile_latent)
 
-    def decode_packed_latents(self, packed_latents: mx.array) -> mx.array:
+    def decode_packed_latents(
+        self, packed_latents: mx.array, tile_latent: int | None = None
+    ) -> mx.array:
         if packed_latents.ndim == 5:
             packed_latents = packed_latents[:, :, 0, :, :]
         bn_mean = self.bn.running_mean.reshape(1, -1, 1, 1)
         bn_std = mx.sqrt(self.bn.running_var.reshape(1, -1, 1, 1) + self.bn.eps)
         latents = packed_latents * bn_std + bn_mean
         latents = self._unpatchify_latents(latents)
-        return self.decode(latents)
+        return self.decode(latents, tile_latent=tile_latent)
+
+    def _decode_tiled(self, z: mx.array, tile_latent: int) -> mx.array:
+        """Decode in overlapping latent tiles, blending with a feathered mask.
+
+        Bounds the decode-activation peak to a single tile (the rest of the image lives
+        only in the small full-resolution accumulation buffers), trading a minor per-tile
+        GroupNorm drift -- hidden by the feathered overlap -- for the ability to decode
+        images that would otherwise OOM. When the latent fits in one tile the result is
+        bit-exact to a full decode (we short-circuit to ``self.decoder`` directly).
+        """
+        up = _DECODER_UPSCALE
+        batch, _, lh, lw = z.shape
+        tile = max(1, tile_latent)
+        overlap = max(1, tile // 4)
+        stride = max(1, tile - overlap)
+
+        def starts(length: int) -> list[int]:
+            if length <= tile:
+                return [0]
+            pos = list(range(0, length - tile + 1, stride))
+            if pos[-1] != length - tile:
+                pos.append(length - tile)
+            return pos
+
+        hs, ws = starts(lh), starts(lw)
+        if len(hs) == 1 and len(ws) == 1:
+            return self.decoder(z)
+
+        out = mx.zeros((batch, 3, lh * up, lw * up), dtype=mx.float32)
+        weight = mx.zeros((1, 1, lh * up, lw * up), dtype=mx.float32)
+        for h0 in hs:
+            th = min(tile, lh)
+            for w0 in ws:
+                tw = min(tile, lw)
+                decoded = self.decoder(z[:, :, h0 : h0 + th, w0 : w0 + tw]).astype(mx.float32)
+                mask = _feather(th * up, tw * up, overlap * up)
+                y0, x0 = h0 * up, w0 * up
+                idx = mx.array([0, 0, y0, x0], dtype=mx.int32)
+                region = out[:, :, y0 : y0 + th * up, x0 : x0 + tw * up] + decoded * mask
+                out = mx.slice_update(out, region, idx, axes=(0, 1, 2, 3))
+                wregion = weight[:, :, y0 : y0 + th * up, x0 : x0 + tw * up] + mask
+                weight = mx.slice_update(weight, wregion, idx, axes=(0, 1, 2, 3))
+                mx.eval(out, weight)
+        return out / weight
 
     @staticmethod
     def _unpatchify_latents(latents: mx.array) -> mx.array:
