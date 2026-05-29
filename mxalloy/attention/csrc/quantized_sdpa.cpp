@@ -145,11 +145,10 @@ void QuantizedScaledDotProductAttention::eval_gpu(
   } params{B, H, L, S, group_size_, scale_};
   enc.set_bytes(params, 8);
 
-  // v1: one thread per output row O[b,h,i,:]; guard handles the rounded-up tail.
-  const int total = B * H * L;
-  const int tg_size = 256;
-  MTL::Size tg = MTL::Size(tg_size, 1, 1);
-  MTL::Size grid = MTL::Size((total + tg_size - 1) / tg_size, 1, 1);
+  // v1 MMA: one simdgroup (32 threads) per (b, h, 8-query block).
+  const int q_blocks = (L + 7) / 8;
+  MTL::Size tg = MTL::Size(32, 1, 1);
+  MTL::Size grid = MTL::Size(q_blocks, 1, B * H);
   enc.dispatch_threadgroups(grid, tg);
 }
 
