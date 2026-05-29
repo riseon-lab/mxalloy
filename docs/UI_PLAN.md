@@ -2,6 +2,10 @@
 
 ## Decision
 
+The surface is the **dogfood harness for the engine**, not a product or a distribution moat —
+the moat is the optimization layer (fused primitives + streaming loader + tiled VAE). Keep it a
+thin tester over the resident engine manager.
+
 Build a lean mxalloy-native local tester before any IgglePixel fork. IgglePixel remains useful reference material for registry-driven controls, runner lifecycle, LoRA conventions, assets, and preview mode, but the first mxalloy surface should be small enough to change quickly while the engine is still moving.
 
 ## Product Shape
