@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mxalloy local tester</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark">mx</div>
+      <div>
+        <div class="brand-title">mxalloy</div>
+        <div class="brand-sub">local tester</div>
+      </div>
+    </div>
+    <nav class="tabs" aria-label="Views">
+      <button class="tab active" data-view="generate">Generate</button>
+      <button class="tab" data-view="models">Models</button>
+      <button class="tab" data-view="loras">LoRAs</button>
+      <button class="tab" data-view="outputs">Outputs</button>
+      <button class="tab" data-view="settings">Settings</button>
+    </nav>
+    <div class="status-strip">
+      <span class="pill" id="engineMode">mock</span>
+      <span class="pill" id="loadedModel">idle</span>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <aside class="panel controls-panel" data-panel="generate">
+      <section class="control-section">
+        <div class="section-head">
+          <h2>Prompt</h2>
+          <span id="promptCount">0</span>
+        </div>
+        <textarea id="prompt" rows="7" placeholder="Describe the image to generate"></textarea>
+        <textarea id="negativePrompt" rows="3" placeholder="Negative prompt"></textarea>
+      </section>
+
+      <section class="control-section">
+        <div class="section-head">
+          <h2>Model</h2>
+        </div>
+        <select id="modelSelect"></select>
+        <div class="segmented" id="quantGroup">
+          <button data-value="int4" class="active">int4</button>
+          <button data-value="int8">int8</button>
+          <button data-value="fp16">fp16</button>
+        </div>
+        <div class="segmented" id="memoryGroup">
+          <button data-value="resident" class="active">resident</button>
+          <button data-value="staged">staged</button>
+          <button data-value="survival">survival</button>
+        </div>
+      </section>
+
+      <section class="control-section">
+        <div class="section-head">
+          <h2>Size</h2>
+          <button class="text-btn" id="swapSize" type="button">swap</button>
+        </div>
+        <div class="preset-grid" id="sizePresets">
+          <button data-w="1024" data-h="1024" class="active">1:1<br><span>1024</span></button>
+          <button data-w="832" data-h="1216">2:3<br><span>832x1216</span></button>
+          <button data-w="1216" data-h="832">3:2<br><span>1216x832</span></button>
+          <button data-w="1344" data-h="768">16:9<br><span>1344x768</span></button>
+        </div>
+        <div class="two-col">
+          <label class="stepper">Width <input id="width" type="number" min="256" max="2048" step="64" value="1024"></label>
+          <label class="stepper">Height <input id="height" type="number" min="256" max="2048" step="64" value="1024"></label>
+        </div>
+      </section>
+
+      <section class="control-section">
+        <div class="section-head">
+          <h2>Sampling</h2>
+        </div>
+        <label class="slider-row">
+          <span>Steps <b id="stepsValue">4</b></span>
+          <input id="steps" type="range" min="1" max="60" step="1" value="4">
+        </label>
+        <label class="slider-row">
+          <span>Guidance <b id="guidanceValue">0</b></span>
+          <input id="guidance" type="range" min="0" max="20" step="0.1" value="0">
+        </label>
+        <label class="stepper full">Seed <input id="seed" type="number" placeholder="random"></label>
+      </section>
+
+      <div class="action-row">
+        <button class="primary" id="generateBtn">Generate</button>
+        <button id="cancelBtn">Cancel</button>
+      </div>
+    </aside>
+
+    <section class="viewer">
+      <div class="viewer-head">
+        <div>
+          <h1 id="viewerTitle">Ready</h1>
+          <p id="viewerSub">Mock engine is available while the real model graph lands.</p>
+        </div>
+        <div class="memory-readout">
+          <span>memory</span>
+          <strong id="memoryValue">idle</strong>
+        </div>
+      </div>
+      <div class="image-stage" id="imageStage">
+        <div class="empty-state">
+          <div class="empty-mark"></div>
+          <p>Generated images will appear here.</p>
+        </div>
+      </div>
+      <div class="log-strip" id="logStrip"></div>
+    </section>
+
+    <aside class="panel side-panel">
+      <section class="side-view active" data-view-panel="generate">
+        <div class="control-section">
+          <div class="section-head">
+            <h2>References</h2>
+            <label class="file-btn">add<input id="refUpload" type="file" accept="image/png,image/jpeg,image/webp"></label>
+          </div>
+          <div class="asset-grid compact" id="referenceGrid"></div>
+        </div>
+        <div class="control-section">
+          <div class="section-head">
+            <h2>LoRAs</h2>
+            <label class="file-btn">add<input id="loraUploadQuick" type="file" accept=".safetensors,.ckpt,.pt,.bin"></label>
+          </div>
+          <div id="activeLoras" class="lora-list"></div>
+        </div>
+        <div class="control-section">
+          <div class="section-head">
+            <h2>Recent</h2>
+            <button class="text-btn" data-view-jump="outputs">all</button>
+          </div>
+          <div class="asset-grid compact" id="recentOutputs"></div>
+        </div>
+      </section>
+
+      <section class="side-view" data-view-panel="models">
+        <div class="section-head sticky"><h2>Models</h2></div>
+        <div id="modelsList" class="stack-list"></div>
+      </section>
+
+      <section class="side-view" data-view-panel="loras">
+        <div class="section-head sticky">
+          <h2>LoRA Library</h2>
+          <label class="file-btn">add<input id="loraUpload" type="file" accept=".safetensors,.ckpt,.pt,.bin"></label>
+        </div>
+        <div id="loraLibrary" class="lora-list"></div>
+      </section>
+
+      <section class="side-view" data-view-panel="outputs">
+        <div class="section-head sticky"><h2>Outputs</h2></div>
+        <div class="asset-grid" id="outputsGrid"></div>
+      </section>
+
+      <section class="side-view" data-view-panel="settings">
+        <div class="section-head sticky"><h2>Settings</h2></div>
+        <form id="settingsForm" class="settings-form">
+          <label>HF token <input id="hfToken" type="password" placeholder="hf_..."></label>
+          <div class="settings-actions">
+            <button type="button" id="testHf">Test</button>
+            <button type="button" id="clearHf">Clear</button>
+          </div>
+          <label>Model cache <input id="modelCachePath" type="text"></label>
+          <label>LoRA folder <input id="loraFolderPath" type="text"></label>
+          <label>Output folder <input id="outputFolderPath" type="text"></label>
+          <label>Reference folder <input id="referenceFolderPath" type="text"></label>
+          <button class="primary" type="submit">Save settings</button>
+          <p class="hint" id="settingsHint">Tokens are stored by the local backend, never browser localStorage.</p>
+        </form>
+      </section>
+    </aside>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
+
