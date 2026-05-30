@@ -69,6 +69,7 @@ class Flux2KleinEngine:
         steps: int = 4,
         height: int = 1024,
         width: int = 1024,
+        guidance: float = 1.0,
     ) -> Image.Image:
         input_ids, attention_mask = self.tokenizer.encode(prompt)
         prompt_embeds = self.text_encoder.get_prompt_embeds(
@@ -89,7 +90,7 @@ class Flux2KleinEngine:
                 timestep=scheduler.timesteps[t],
                 img_ids=latent_ids,
                 txt_ids=text_ids,
-                guidance=None,
+                guidance=guidance,
             )
             latents = scheduler.step(noise, t, latents)
             mx.eval(latents)
@@ -100,6 +101,24 @@ class Flux2KleinEngine:
         decoded = self.vae.decode_packed_latents(packed, tile_latent=self.vae_tile_latent)
         mx.eval(decoded)
         return self._to_pil(decoded)
+
+    def set_loras(self, loras: list[tuple[str, float]]) -> dict:
+        """Hot-swap the active LoRA set on the resident base (no reload).
+
+        ``loras`` = ``[(safetensors_path, strength), ...]``; pass ``[]`` to clear. Returns a
+        ``{'applied': n, 'skipped': [...]}`` summary. Runtime-applied on the quantized weights.
+        """
+        from mxalloy.models.flux2.lora import apply_loras, load_lora_file
+
+        return apply_loras(
+            self.transformer, [(load_lora_file(path), float(strength)) for path, strength in loras]
+        )
+
+    def clear_loras(self) -> None:
+        """Remove all active LoRAs (restores the base bit-for-bit)."""
+        from mxalloy.models.flux2.lora import clear_loras
+
+        clear_loras(self.transformer)
 
     @staticmethod
     def _to_pil(decoded: mx.array) -> Image.Image:
