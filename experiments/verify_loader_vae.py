@@ -11,9 +11,12 @@ correct on real weights. mflux is a dev-time oracle only.
 import mlx.core as mx
 from mflux.models.flux2.model.flux2_vae.vae import Flux2VAE as RefVAE
 
-from mxalloy.models.flux2.loader import component_files, find_klein_model_dir, load_into_module
+from mxalloy.loader import QuantConfig, component_files, load_quantized
+from mxalloy.models.flux2.loader import find_klein_model_dir
 from mxalloy.models.flux2.vae import Flux2VAE as OurVAE
 from mxalloy.models.flux2.weight_mapping import remap_vae_decode_key
+
+_BF16 = QuantConfig(bits=None)
 
 
 def main() -> None:
@@ -21,13 +24,13 @@ def main() -> None:
     files = component_files(model_dir, "vae")
 
     ours = OurVAE()
-    missing = load_into_module(ours, files, remap_vae_decode_key)
+    missing = load_quantized(ours, files, remap=remap_vae_decode_key, quant=_BF16)
     print(f"our VAE: missing params after load = {len(missing)}")
     if missing:
         print("  sample missing:", sorted(missing)[:8])
 
     ref = RefVAE()
-    load_into_module(ref, files, remap_vae_decode_key)  # ref keeps encoder random (unused)
+    load_quantized(ref, files, remap=remap_vae_decode_key, quant=_BF16)  # ref encoder stays random
 
     packed = mx.random.normal((1, 128, 16, 16))
     our_out = ours.decode_packed_latents(packed)

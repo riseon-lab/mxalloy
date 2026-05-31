@@ -16,8 +16,9 @@ import mlx.core as mx
 import numpy as np
 from PIL import Image
 
+from mxalloy.loader import QuantConfig, component_files, load_quantized
 from mxalloy.models.flux2.latents import prepare_packed_latents, prepare_text_ids
-from mxalloy.models.flux2.loader import component_files, find_klein_model_dir, load_into_module
+from mxalloy.models.flux2.loader import find_klein_model_dir
 from mxalloy.models.flux2.scheduler import FlowMatchEulerScheduler
 from mxalloy.models.flux2.text_encoder import Qwen3TextEncoder
 from mxalloy.models.flux2.tokenizer import KleinTokenizer
@@ -47,19 +48,20 @@ class Flux2KleinEngine:
         self.transformer = Flux2Transformer()
         self.text_encoder = Qwen3TextEncoder()
         self.vae = Flux2VAE()
-        load_into_module(
-            self.transformer,
-            component_files(model_dir, "transformer"),
-            remap_transformer_key,
-            quantize_bits=quantize_bits,
+        quant = QuantConfig(bits=quantize_bits)
+        load_quantized(
+            self.transformer, component_files(model_dir, "transformer"),
+            remap=remap_transformer_key, quant=quant,
         )
-        load_into_module(
-            self.text_encoder,
-            component_files(model_dir, "text_encoder"),
-            remap_text_encoder_key,
-            quantize_bits=quantize_bits,
+        load_quantized(
+            self.text_encoder, component_files(model_dir, "text_encoder"),
+            remap=remap_text_encoder_key, quant=quant,
         )
-        load_into_module(self.vae, component_files(model_dir, "vae"), remap_vae_decode_key)
+        # VAE stays bf16 (decode is the memory peak; tiling handles it, not quantization).
+        load_quantized(
+            self.vae, component_files(model_dir, "vae"),
+            remap=remap_vae_decode_key, quant=QuantConfig(bits=None),
+        )
         self.tokenizer = KleinTokenizer(Path(model_dir) / "tokenizer")
 
     def generate(
