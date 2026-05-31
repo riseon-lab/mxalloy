@@ -37,13 +37,14 @@ Attention **speed** is a tracked work-in-progress: the v1 MMA flash kernel is co
 
 ## Repository map
 
-- `mxalloy/attention`: fused quantized-KV attention — pure-MLX fallback (always available) + compiled Metal `Primitive` in `csrc/`
-- `mxalloy/quant`: quantization formats, calibration, packing, dequantization
+- `mxalloy/loader.py`: the core model-agnostic streaming quantized loader (`load_quantized`, `QuantConfig`, `component_files`)
+- `mxalloy/runtime`: device detection + memory-aware execution scheduling
+- `mxalloy/attention`: fused quantized-KV attention — pure-MLX fallback (the live primitive). An experimental compiled Metal `Primitive` lives in `research/attention_kernel/` (frozen; not built by default)
 - `mxalloy/kernels`: Metal kernel registry + launch abstractions
-- `mxalloy/runtime`: streaming quantized loader, device selection, resident execution
-- `mxalloy/models`: model adapters, starting with FLUX.2-klein (+ tiled VAE)
-- `mxalloy/integrations`: Hugging Face / ecosystem compatibility
-- `benchmarks`: repeatable performance + memory tests (klein sweep, KV-cache bench)
+- `mxalloy/config.py`, `mxalloy/errors.py`: public config dataclasses + exception hierarchy
+- `mxalloy/models`: model adapters (e.g. FLUX.2-klein + tiled VAE) — consume the core, never the reverse
+- `benchmarks`: repeatable performance + memory tests
+- `research/`: frozen experiments (the compiled attention kernel)
 - `surface`: lean local tester UI
 - `docs`: design brief, build plan, versioning, errors
 - `experiments`: research spikes (streaming loader, tiled VAE, kernel prototypes)

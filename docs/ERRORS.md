@@ -59,5 +59,5 @@ ValueError: bad lora
 
 ## Adoption Status
 
-- `mxalloy.quant` raises `QuantizationError` today.
-- Other modules adopt the hierarchy as they become real (Week 1+): loaders raise `ModelLoadError`, the device/runtime layer raises `UnsupportedHardwareError`, LoRA validation raises `IncompatibleLoRAError`, and `enable_alloy` raises `ConfigurationError` for bad config.
+- The exception types exist and form the hierarchy above; modules raise them as they become real.
+- The loader raises `ModelLoadError`; the device/runtime layer raises `UnsupportedHardwareError`; LoRA validation raises `IncompatibleLoRAError`; config validation raises `ConfigurationError`.

@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Literal
 
 QuantizationMode = Literal["none", "fp16", "int8", "int4"]
-AttentionMode = Literal["mlx", "metal", "tiled"]
 
 
 @dataclass(slots=True)
@@ -20,8 +19,6 @@ class QuantizationConfig:
 
 @dataclass(slots=True)
 class RuntimeConfig:
-    backend: Literal["mlx", "metal"] = "mlx"
-    attention: AttentionMode = "mlx"
     memory_budget_gb: float | None = None
     enable_unified_memory_pressure_checks: bool = True
 
@@ -33,4 +30,3 @@ class AlloyConfig:
     quantization: QuantizationConfig = field(default_factory=QuantizationConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     lora_paths: list[Path] = field(default_factory=list)
-

@@ -1,27 +1,42 @@
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
-from mxalloy.errors import AlloyError, ConfigurationError, QuantizationError
-from mxalloy.quant import quantize_int8_weight
+from mxalloy.errors import (
+    AlloyError,
+    ConfigurationError,
+    IncompatibleLoRAError,
+    ModelLoadError,
+    QuantizationError,
+    UnsupportedHardwareError,
+)
 
 
 def test_specific_errors_derive_from_alloy_error() -> None:
-    assert issubclass(QuantizationError, AlloyError)
-    assert issubclass(ConfigurationError, AlloyError)
+    for exc in (
+        ConfigurationError,
+        QuantizationError,
+        IncompatibleLoRAError,
+        UnsupportedHardwareError,
+        ModelLoadError,
+    ):
+        assert issubclass(exc, AlloyError)
 
 
 def test_value_like_errors_are_also_value_errors() -> None:
-    assert issubclass(QuantizationError, ValueError)
-    assert issubclass(ConfigurationError, ValueError)
+    for exc in (ConfigurationError, QuantizationError, IncompatibleLoRAError):
+        assert issubclass(exc, ValueError)
 
 
-def test_quantize_raises_quantization_error_catchable_three_ways() -> None:
-    bad = np.zeros((4, 4), dtype=np.float32)
-    with pytest.raises(QuantizationError):
-        quantize_int8_weight(bad, group_size=0)
+def test_runtime_like_errors_are_also_runtime_errors() -> None:
+    for exc in (UnsupportedHardwareError, ModelLoadError):
+        assert issubclass(exc, RuntimeError)
+
+
+def test_errors_are_catchable_via_base_and_builtin() -> None:
     with pytest.raises(AlloyError):
-        quantize_int8_weight(bad, group_size=0)
+        raise QuantizationError("nope")
     with pytest.raises(ValueError):
-        quantize_int8_weight(bad, group_size=0)
+        raise ConfigurationError("nope")
+    with pytest.raises(RuntimeError):
+        raise ModelLoadError("nope")

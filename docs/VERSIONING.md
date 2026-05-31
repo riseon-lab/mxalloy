@@ -6,11 +6,11 @@ Alloy follows semantic versioning, with one explicit promise during the 0.x seri
 
 The public API is:
 
-- `mxalloy.integrations.diffusers.enable_alloy`
-- The config dataclasses: `AlloyConfig`, `QuantizationConfig`, `RuntimeConfig`
+- The core loader: `mxalloy.load_quantized`, `mxalloy.QuantConfig`, `mxalloy.component_files`
+- The config dataclasses: `mxalloy.AlloyConfig`, `mxalloy.QuantizationConfig`, `mxalloy.RuntimeConfig`
 - The exception types in `mxalloy.errors`
 
-Everything else is **internal** and may change in any release — including the INT8 weight format (`Int8QuantizedWeight`) and all of `mxalloy/quant`, `mxalloy/attention`, `mxalloy/kernels`, `mxalloy/runtime`, and `mxalloy/models`. Keeping the quant format internal is deliberate: calibration work (Week 6) is expected to change it.
+Everything else is **internal** and may change in any release — all of `mxalloy/attention`, `mxalloy/kernels`, `mxalloy/runtime`, and `mxalloy/models`. Model adapters (e.g. `mxalloy.models.flux2`) stay internal until the model-agnostic front door (`mxalloy.loader(...)`) is stabilised.
 
 ## The 0.x Promise: Stable Within Minor
 

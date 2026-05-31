@@ -1,29 +1,51 @@
 from __future__ import annotations
 
-import numpy as np
+import os
+import subprocess
+import sys
+from pathlib import Path
 
-from mxalloy.integrations.diffusers import enable_alloy
-from mxalloy.quant import quantize_int8_weight
-from mxalloy.runtime import detect_device
-
-
-class DummyPipeline:
-    pass
+_REPO = Path(__file__).resolve().parents[1]
 
 
-def test_enable_alloy_attaches_config() -> None:
-    pipe = enable_alloy(DummyPipeline(), quantization="int8", loras=["adapter.safetensors"])
-    assert pipe._mxalloy_config.quantization.mode == "int8"
-    assert len(pipe._mxalloy_config.lora_paths) == 1
+def _run(code: str) -> subprocess.CompletedProcess:
+    env = {**os.environ, "PYTHONPATH": str(_REPO)}
+    return subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
 
 
-def test_quantize_int8_weight_shape() -> None:
-    weight = np.arange(12, dtype=np.float32).reshape(3, 4)
-    quantized = quantize_int8_weight(weight, group_size=4)
-    assert quantized.values.shape == weight.shape
+def test_import_mxalloy_is_mlx_free() -> None:
+    # `import mxalloy` must not pull in mlx: the core stays import-light, and mlx loads only
+    # when a runtime primitive (e.g. load_quantized) is first accessed. Checked in a fresh
+    # subprocess so it is independent of whatever other tests have already imported.
+    result = _run(
+        "import mxalloy, sys; "
+        "leaked = sorted(m for m in sys.modules if m == 'mlx' or m.startswith('mlx.')); "
+        "assert not leaked, leaked"
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_public_symbols_are_exported() -> None:
+    import mxalloy
+
+    # Always importable with no mlx dependency.
+    for name in (
+        "AlloyConfig",
+        "QuantizationConfig",
+        "RuntimeConfig",
+        "AlloyError",
+        "ConfigurationError",
+    ):
+        assert hasattr(mxalloy, name), name
+    # mlx-backed core loader: exposed lazily (resolving these imports mlx), so assert via
+    # __all__ rather than forcing the import here.
+    for name in ("QuantConfig", "load_quantized", "component_files"):
+        assert name in mxalloy.__all__, name
 
 
 def test_detect_device_returns_structured_result() -> None:
+    from mxalloy.runtime import detect_device
+
     device = detect_device()
     assert isinstance(device.machine, str)
-
+    assert isinstance(device.is_apple_silicon, bool)
