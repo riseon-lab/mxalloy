@@ -1,10 +1,11 @@
-# Dev build for the fused quantized-KV attention extension. SKELETON.
+# Dev build for the fused quantized-KV attention extension. EXPERIMENTAL / FROZEN.
 #
-# Local dev (drops _ext*.so + mxalloy_ext.metallib into mxalloy/attention/):
+# Build, then copy _ext*.so + mxalloy_ext.metallib next to
+# mxalloy/attention/quantized_sdpa.py to activate it (otherwise the pure-MLX fallback runs):
 #     # one-time: install full Xcode, then
 #     sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 #     pip install nanobind cmake
-#     cd mxalloy/attention/csrc && python setup.py build_ext --inplace
+#     cd research/attention_kernel && python setup.py build_ext --inplace
 #
 # Packaging to a *single* PyPI binary wheel: the main project uses hatchling, which is not
 # first-class for compiled extensions. Two clean options (pick one when this graduates):

@@ -7,7 +7,7 @@ inline-dequant int4 K/V in-register + online-softmax, in one dispatch. Two check
 
 v1 scope (restraint): MHA, fp16 q, 4-bit K/V, head_dim 128, no mask, one thread per query
 (correctness + memory first; tiling/SIMD-matmul is the metallib stage). The body ports
-verbatim into mxalloy/attention/csrc/quantized_sdpa.metal.
+verbatim into research/attention_kernel/quantized_sdpa.metal.
 
     PYTHONPATH=. .venv/bin/python experiments/proto_qkv_attention.py
 """

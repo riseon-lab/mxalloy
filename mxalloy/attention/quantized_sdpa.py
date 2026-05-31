@@ -17,10 +17,13 @@ Two backends behind one API:
   ``mx.fast.scaled_dot_product_attention``. Always available (no Metal toolchain needed),
   numerically correct, and the **oracle** the fused kernel is verified against. It *does*
   pay the transient dequant spike -- that spike is exactly what the kernel removes.
-* compiled ``mxalloy.attention._ext`` -- the fused metallib kernel (built via the MLX
-  CMake/extension tooling; requires full Xcode). Drop-in faster + spike-free when present.
+* compiled ``mxalloy.attention._ext`` -- the fused metallib kernel. EXPERIMENTAL: the
+  sources live under ``research/attention_kernel/`` (frozen) and are not built or shipped by
+  default. It is numerically correct but, on the current GEMM-bound diffusion path, it is
+  memory-not-speed -- so the pure-MLX fallback above is the live primitive. Build it only to
+  A/B KV-cached / long-context workloads, dropping the artifact next to this module.
 
-INTERNAL: requires mlx.
+INTERNAL: requires mlx. The pure-MLX fallback needs no Metal toolchain.
 """
 
 from __future__ import annotations
@@ -43,8 +46,9 @@ class QuantizedKV(NamedTuple):
     bits: int = 8  # 8-bit KV is ~lossless (<1%, >40dB); 4-bit (~12%) is the OOM-only lever
 
 
-# The compiled fused kernel is optional: absent until built (from ./csrc) on a machine with
-# the Metal toolchain. Degrade to the pure-MLX fallback when it isn't there. The hasattr
+# The compiled fused kernel is optional and off by default: absent unless built (from
+# research/attention_kernel, needs the Metal toolchain) and dropped next to this module.
+# Degrade to the pure-MLX fallback when it isn't there -- the shipped default. The hasattr
 # guard rejects a stray namespace package and only accepts a real compiled module.
 try:
     from mxalloy.attention import _ext as _compiled  # type: ignore
