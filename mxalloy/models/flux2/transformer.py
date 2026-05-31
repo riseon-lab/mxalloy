@@ -437,6 +437,8 @@ class Flux2Transformer(nn.Module):
         self.proj_out = nn.Linear(
             self.inner_dim, patch_size * patch_size * self.out_channels, bias=False
         )
+        self._cached_rope = None
+        self._cached_rope_keys = None
 
     def __call__(
         self,
@@ -473,12 +475,23 @@ class Flux2Transformer(nn.Module):
         if txt_ids.ndim == 3:
             txt_ids = txt_ids[0]
 
-        image_rotary_emb = self.pos_embed(img_ids)
-        text_rotary_emb = self.pos_embed(txt_ids)
-        concat_rotary_emb = (
-            mx.concatenate([text_rotary_emb[0], image_rotary_emb[0]], axis=0),
-            mx.concatenate([text_rotary_emb[1], image_rotary_emb[1]], axis=0),
-        )
+        if (
+            getattr(self, "_cached_rope", None) is not None
+            and getattr(self, "_cached_rope_keys", None) is not None
+            and self._cached_rope_keys[0] is img_ids
+            and self._cached_rope_keys[1] is txt_ids
+        ):
+            concat_rotary_emb = self._cached_rope
+        else:
+            image_rotary_emb = self.pos_embed(img_ids)
+            text_rotary_emb = self.pos_embed(txt_ids)
+            concat_rotary_emb = (
+                mx.concatenate([text_rotary_emb[0], image_rotary_emb[0]], axis=0),
+                mx.concatenate([text_rotary_emb[1], image_rotary_emb[1]], axis=0),
+            )
+            mx.eval(concat_rotary_emb[0], concat_rotary_emb[1])
+            self._cached_rope = concat_rotary_emb
+            self._cached_rope_keys = (img_ids, txt_ids)
 
         temb_mod_params_img = self.double_stream_modulation_img(temb)
         temb_mod_params_txt = self.double_stream_modulation_txt(temb)
