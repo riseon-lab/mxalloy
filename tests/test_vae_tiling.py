@@ -11,7 +11,7 @@ import pytest
 
 mx = pytest.importorskip("mlx.core")
 
-from mxalloy.models.flux2.vae import Flux2VAE, _DECODER_UPSCALE, _feather
+from mxalloy.models.flux2.vae import _DECODER_UPSCALE, Flux2VAE, _feather
 
 
 def _stub_decoder(z: mx.array) -> mx.array:

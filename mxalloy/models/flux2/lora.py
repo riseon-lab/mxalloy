@@ -68,7 +68,9 @@ def _bfl_targets(p: str) -> list[tuple[str, int | None]]:
     """
     if m := re.match(r"double_blocks\.(\d+)\.(img|txt)_attn\.qkv$", p):
         i, s = m.group(1), m.group(2)
-        names = ["to_q", "to_k", "to_v"] if s == "img" else ["add_q_proj", "add_k_proj", "add_v_proj"]
+        names = (
+            ["to_q", "to_k", "to_v"] if s == "img" else ["add_q_proj", "add_k_proj", "add_v_proj"]
+        )
         return [(f"transformer_blocks.{i}.attn.{n}", k) for k, n in enumerate(names)]
     if m := re.match(r"double_blocks\.(\d+)\.(img|txt)_attn\.proj$", p):
         i, s = m.group(1), m.group(2)
@@ -76,12 +78,17 @@ def _bfl_targets(p: str) -> list[tuple[str, int | None]]:
     if m := re.match(r"double_blocks\.(\d+)\.(img|txt)_mlp\.(\d)$", p):
         i, s, layer = m.group(1), m.group(2), m.group(3)
         ff = "ff" if s == "img" else "ff_context"
-        return [(f"transformer_blocks.{i}.{ff}.{'linear_in' if layer == '0' else 'linear_out'}", None)]
+        return [
+            (f"transformer_blocks.{i}.{ff}.{'linear_in' if layer == '0' else 'linear_out'}", None)
+        ]
     if m := re.match(r"single_blocks\.(\d+)\.linear(\d)$", p):
         i, layer = m.group(1), m.group(2)
         sub = "to_qkv_mlp_proj" if layer == "1" else "to_out"
         return [(f"single_transformer_blocks.{i}.attn.{sub}", None)]
-    if m := re.match(r"(double_stream_modulation_img|double_stream_modulation_txt|single_stream_modulation)\.lin$", p):
+    if m := re.match(
+        r"(double_stream_modulation_img|double_stream_modulation_txt|single_stream_modulation)\.lin$",
+        p,
+    ):
         return [(f"{m.group(1)}.linear", None)]
     if p == "img_in":
         return [("x_embedder", None)]
@@ -149,7 +156,11 @@ def apply_loras(transformer, loras: list[tuple[dict, float]]) -> dict:
                 skipped.append(p)
                 continue
             for tpath, third in targets:
-                bt = b if third is None else b[third * (b.shape[0] // 3): (third + 1) * (b.shape[0] // 3)]
+                bt = (
+                    b
+                    if third is None
+                    else b[third * (b.shape[0] // 3): (third + 1) * (b.shape[0] // 3)]
+                )
                 _wrap(transformer, tpath).add(a, bt, scale)
                 applied += 1
     return {"applied": applied, "skipped": sorted(set(skipped))}

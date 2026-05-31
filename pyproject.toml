@@ -49,9 +49,16 @@ packages = ["mxalloy"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Lint ship-able code only: experiments/ are throwaway investigation scripts and research/ is
+# the frozen attention kernel — neither is part of the package.
+extend-exclude = ["experiments", "research"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests guard the optional mlx dependency via pytest.importorskip before importing it.
+"tests/*" = ["E402"]
 
 [tool.mypy]
 python_version = "3.11"
