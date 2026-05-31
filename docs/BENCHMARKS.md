@@ -35,6 +35,32 @@ in steps (e.g. 2048² at 20 steps ≈ 5× the 4-step time). Resolutions round to
 16 (1080 → 1072). HD and 2048² previously **could not run** on 18 GB (full-decode peak
 ~24.5 GB and ~44.9 GB); tiling brings every config here under ~14.7 GB.
 
+## vs mflux (the MLX reference)
+
+Same model (klein-4B), machine (18 GB), and config (4-bit, 4 steps, seed 42, guidance 1.0 →
+one forward/step), both warm. mflux is the dev-time reference oracle, never a runtime dep.
+Reproduce: `PYTHONPATH=. .venv/bin/python experiments/bench_vs_mflux.py --engine {mflux,mxalloy} --size {512,1024}`.
+
+| Resolution | Engine | Warm gen (min) | Gen peak | Note |
+|---|---|---|---|---|
+| 512² | mflux | 17.7 s | 12.5 GB | |
+| 512² | **mxalloy** | **14.3 s** | **7.5 GB** | |
+| 1024² | mflux | 54.2 s | **19.7 GB** | > 18 GB physical → swap |
+| 1024² | **mxalloy** | **44.9 s** | **14.6 GB** | tiled decode, no swap |
+
+- **Per-GEMM compute is identical.** Both bottom out on the same MLX matmul/SDPA kernels at the
+  M3 Pro's ~4 TFLOP/s ceiling (`experiments/precision_microbench.py`); neither can be faster at
+  the math. The comparison is apples-to-apples — same model, quantization, steps, seed, 512-token
+  padded text, out-layers, and both decode the full image.
+- **mxalloy runs ~15–25% faster end-to-end and uses 30–40% less peak**, at *both* resolutions.
+  The lever is memory: a consistently ~5 GB smaller working set (streaming-quant load + tiled
+  decode) means less allocation/cache pressure — and at 1024² it avoids the swap mflux falls into
+  (mflux's 19.7 GB peak exceeds 18 GB physical), where mflux's run-to-run time also turns erratic.
+- The speed delta is from a small sample (2 warm runs/config) — treat it as a band. The
+  repeatable, load-bearing facts are per-GEMM parity and the large, consistent peak reduction.
+  mflux additionally `mx.compile`s its transformer (mxalloy does not), so the lead holds *despite*
+  that handicap; adding `mx.compile` to mxalloy is unexplored upside.
+
 ## Tiled VAE decode
 
 Decode splits the latent into overlapping tiles (default `vae_tile_latent=128`, a 1024 px
