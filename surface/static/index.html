@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>mxalloy local tester</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=asset-delete2">
 </head>
 <body>
   <header class="topbar">
@@ -44,15 +44,10 @@
           <h2>Model</h2>
         </div>
         <select id="modelSelect"></select>
+        <div class="model-meta" id="modelMeta">Checking local cache...</div>
         <div class="segmented" id="quantGroup">
-          <button data-value="int4" class="active">int4</button>
-          <button data-value="int8">int8</button>
-          <button data-value="fp16">fp16</button>
         </div>
         <div class="segmented" id="memoryGroup">
-          <button data-value="resident" class="active">resident</button>
-          <button data-value="staged">staged</button>
-          <button data-value="survival">survival</button>
         </div>
       </section>
 
@@ -82,8 +77,8 @@
           <input id="steps" type="range" min="1" max="60" step="1" value="4">
         </label>
         <label class="slider-row">
-          <span>Guidance <b id="guidanceValue">0</b></span>
-          <input id="guidance" type="range" min="0" max="20" step="0.1" value="0">
+          <span>CFG <b id="guidanceValue">1</b></span>
+          <input id="guidance" type="range" min="0" max="20" step="0.1" value="1">
         </label>
         <label class="stepper full">Seed <input id="seed" type="number" placeholder="random"></label>
       </section>
@@ -98,11 +93,21 @@
       <div class="viewer-head">
         <div>
           <h1 id="viewerTitle">Ready</h1>
-          <p id="viewerSub">Mock engine is available while the real model graph lands.</p>
+          <p id="viewerSub">FLUX.2 klein 4B is ready for local MLX testing.</p>
         </div>
-        <div class="memory-readout">
-          <span>memory</span>
-          <strong id="memoryValue">idle</strong>
+        <div class="memory-readout" aria-label="MLX memory">
+          <div class="memory-top">
+            <span>MLX memory</span>
+            <strong id="memoryValue">idle</strong>
+          </div>
+          <div class="memory-bar" title="Active MLX memory against unified memory">
+            <div id="memoryFill"></div>
+          </div>
+          <div class="memory-numbers">
+            <span id="memoryPeak">peak --</span>
+            <span id="memoryCache">cache --</span>
+          </div>
+          <div class="memory-stream" id="memoryStream"></div>
         </div>
       </div>
       <div class="image-stage" id="imageStage">
@@ -176,7 +181,6 @@
     </aside>
   </main>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=asset-delete2"></script>
 </body>
 </html>
-

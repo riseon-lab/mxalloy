@@ -9,6 +9,7 @@ import secrets
 import shutil
 import stat
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -17,7 +18,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from surface.engine import GenerationRequest, LoraSelection, MockEngine
+from surface.engine import GenerationRequest, LoraSelection, MockEngine, RealFlux2KleinEngine
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -50,32 +51,36 @@ MODEL_REGISTRY = [
         "id": "flux2-klein-4b",
         "name": "FLUX.2 klein 4B",
         "status": "target",
-        "description": "Phase 1 target. Streaming quantized load, resident generation.",
+        "description": "Available local test target. Native MLX generation with tiled VAE.",
         "default_width": 1024,
         "default_height": 1024,
         "default_steps": 4,
-        "quants": ["int4", "int8", "fp16"],
+        "default_guidance": 1.0,
+        "quants": ["int4", "int8", "bf16"],
         "memory_modes": ["resident", "staged", "survival"],
         "license": "Apache-2.0",
-    },
-    {
-        "id": "flux2-klein-9b",
-        "name": "FLUX.2 klein 9B",
-        "status": "stretch",
-        "description": "Larger klein target for higher-RAM Macs and staged memory testing.",
-        "default_width": 1024,
-        "default_height": 1024,
-        "default_steps": 4,
-        "quants": ["int4", "int8", "fp16"],
-        "memory_modes": ["staged", "survival"],
-        "license": "Non-commercial",
+        "notes": {
+            "int4": "lowest memory",
+            "int8": "quality default",
+            "bf16": "unquantized baseline",
+            "resident": "warm model, 1024px VAE tile",
+            "staged": "smaller VAE tile",
+            "survival": "smallest VAE tile",
+        },
     },
 ]
+
+
+def _create_engine() -> MockEngine | RealFlux2KleinEngine:
+    if os.environ.get("MXALLOY_SURFACE_ENGINE", "real").lower() == "mock":
+        return MockEngine()
+    return RealFlux2KleinEngine(lambda model_id: _model_dir_for(model_id))
+
 
 app = FastAPI(title="mxalloy local tester")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-engine = MockEngine()
+engine = _create_engine()
 logs: list[dict[str, Any]] = []
 subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
 current_task: asyncio.Task | None = None
@@ -95,7 +100,7 @@ class GenerateBody(BaseModel):
     width: int = Field(1024, ge=256, le=2048)
     height: int = Field(1024, ge=256, le=2048)
     steps: int = Field(4, ge=1, le=100)
-    guidance: float = Field(0.0, ge=0.0, le=20.0)
+    guidance: float = Field(1.0, ge=0.0, le=20.0)
     seed: int | None = None
     quant: str = "int4"
     memory_mode: str = "resident"
@@ -128,12 +133,13 @@ def status() -> dict[str, Any]:
     task_running = current_task is not None and not current_task.done()
     return {
         "engine": {
-            "mode": "mock",
+            "mode": getattr(engine, "mode", "unknown"),
             "loaded_model_id": engine.loaded_model_id,
             "quant": engine.loaded_quant,
             "memory_mode": engine.loaded_memory_mode,
             "running": task_running,
             "job_id": current_job_id if task_running else None,
+            "memory": engine.memory_snapshot(),
         },
         "settings": public_settings(),
         "logs": logs[-80:],
@@ -145,7 +151,10 @@ def models() -> dict[str, Any]:
     items = []
     for model in MODEL_REGISTRY:
         row = dict(model)
-        row["downloaded"] = _download_marker(row["id"]).exists()
+        local_path = _local_model_path(row["id"])
+        row["downloaded"] = local_path is not None
+        row["available"] = local_path is not None
+        row["local_path"] = str(local_path) if local_path else None
         items.append(row)
     return {"models": items}
 
@@ -161,8 +170,14 @@ async def download_model(body: LoadBody) -> dict[str, Any]:
 
 @app.post("/api/load")
 async def load(body: LoadBody) -> dict[str, Any]:
-    _model_or_404(body.model_id)
-    await engine.load(body.model_id, body.quant, body.memory_mode, publish)
+    _validate_model_options(body.model_id, body.quant, body.memory_mode)
+    pulse = asyncio.create_task(_memory_pulse("load"))
+    try:
+        await engine.load(body.model_id, body.quant, body.memory_mode, publish)
+    finally:
+        pulse.cancel()
+        with suppress(asyncio.CancelledError):
+            await pulse
     return {"status": "ready", "model_id": body.model_id}
 
 
@@ -173,7 +188,7 @@ async def generate(body: GenerateBody) -> dict[str, Any]:
         raise HTTPException(409, "Generation already running")
     if not body.prompt.strip():
         raise HTTPException(400, "Prompt is required")
-    _model_or_404(body.model_id)
+    _validate_model_options(body.model_id, body.quant, body.memory_mode)
 
     job_id = secrets.token_hex(8)
     current_job_id = job_id
@@ -358,6 +373,8 @@ def test_hf_token() -> dict[str, Any]:
 
 
 async def _run_generation(job_id: str, req: GenerationRequest) -> None:
+    global current_job_id
+    pulse = asyncio.create_task(_memory_pulse(job_id))
     try:
         result = await engine.generate(req, _output_dir(), publish)
         await publish(
@@ -369,6 +386,11 @@ async def _run_generation(job_id: str, req: GenerationRequest) -> None:
         await publish("cancelled", "Generation cancelled", {"job_id": job_id})
     except Exception as exc:
         await publish("error", f"{type(exc).__name__}: {exc}", {"job_id": job_id})
+    finally:
+        pulse.cancel()
+        with suppress(asyncio.CancelledError):
+            await pulse
+        current_job_id = None
 
 
 async def publish(kind: str, message: str, payload: dict[str, Any] | None = None) -> None:
@@ -386,11 +408,79 @@ def _sse(event: dict[str, Any]) -> str:
     return f"event: {event['kind']}\ndata: {json.dumps(event)}\n\n"
 
 
+@app.get("/api/memory")
+def memory() -> dict[str, Any]:
+    return {"memory": engine.memory_snapshot()}
+
+
+async def _memory_pulse(job_id: str) -> None:
+    try:
+        while True:
+            await publish(
+                "memory",
+                "Memory sample",
+                {"job_id": job_id, "memory": engine.memory_snapshot()},
+            )
+            await asyncio.sleep(0.75)
+    except asyncio.CancelledError:
+        await publish(
+            "memory",
+            "Memory sample",
+            {"job_id": job_id, "memory": engine.memory_snapshot()},
+        )
+        raise
+
+
 def _model_or_404(model_id: str) -> dict[str, Any]:
     for model in MODEL_REGISTRY:
         if model["id"] == model_id:
             return model
     raise HTTPException(404, f"Unknown model: {model_id}")
+
+
+def _validate_model_options(model_id: str, quant: str, memory_mode: str) -> dict[str, Any]:
+    model = _model_or_404(model_id)
+    if quant not in model["quants"]:
+        raise HTTPException(400, f"{model['name']} does not support quant {quant!r}")
+    if memory_mode not in model["memory_modes"]:
+        raise HTTPException(400, f"{model['name']} does not support memory mode {memory_mode!r}")
+    return model
+
+
+def _model_dir_for(model_id: str) -> str:
+    _model_or_404(model_id)
+    path = _local_model_path(model_id)
+    if path is None:
+        raise FileNotFoundError(
+            "FLUX.2-klein-4B was not found in the configured model cache. "
+            "Check Settings > Model cache or download black-forest-labs/FLUX.2-klein-4B first."
+        )
+    return str(path)
+
+
+def _local_model_path(model_id: str) -> Path | None:
+    if model_id != "flux2-klein-4b":
+        return None
+    root = Path(_read_settings()["model_cache_path"]).expanduser()
+    candidates = []
+    if _looks_like_klein_snapshot(root):
+        candidates.append(root)
+    hub_model_dir = root / "hub" / "models--black-forest-labs--FLUX.2-klein-4B"
+    direct_model_dir = root / "models--black-forest-labs--FLUX.2-klein-4B"
+    candidates.extend(sorted((hub_model_dir / "snapshots").glob("*")))
+    candidates.extend(sorted((direct_model_dir / "snapshots").glob("*")))
+    candidates.extend(sorted(root.glob("snapshots/*")))
+    valid = [path for path in candidates if _looks_like_klein_snapshot(path)]
+    return valid[-1] if valid else None
+
+
+def _looks_like_klein_snapshot(path: Path) -> bool:
+    return (
+        (path / "transformer").is_dir()
+        and (path / "text_encoder").is_dir()
+        and (path / "vae").is_dir()
+        and (path / "tokenizer").is_dir()
+    )
 
 
 def _read_settings() -> dict[str, str]:

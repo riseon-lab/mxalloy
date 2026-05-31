@@ -4,10 +4,15 @@ const state = {
   loras: [],
   activeRefs: new Set(),
   activeLoras: new Map(),
+  selectedModelId: '',
+  lastModelDefaultsApplied: '',
+  currentOutputId: '',
   quant: 'int4',
   memoryMode: 'resident',
   currentView: 'generate',
   generating: false,
+  engine: {},
+  memorySamples: [],
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -43,6 +48,12 @@ function bindUi() {
   $$('[data-view-jump]').forEach((btn) => btn.addEventListener('click', () => setView(btn.dataset.viewJump)));
   bindSegment($('#quantGroup'), 'quant');
   bindSegment($('#memoryGroup'), 'memoryMode');
+  $('#modelSelect').addEventListener('change', () => {
+    state.selectedModelId = $('#modelSelect').value;
+    applySelectedModelDefaults();
+    renderModelControls();
+    syncActionAvailability();
+  });
 
   $('#prompt').addEventListener('input', () => {
     $('#promptCount').textContent = $('#prompt').value.length;
@@ -76,11 +87,11 @@ function bindUi() {
 }
 
 function bindSegment(root, key) {
-  $$('button', root).forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state[key] = btn.dataset.value;
-      $$('button', root).forEach((item) => item.classList.toggle('active', item === btn));
-    });
+  root.addEventListener('click', (event) => {
+    const btn = event.target.closest('button[data-value]');
+    if (!btn || !root.contains(btn)) return;
+    state[key] = btn.dataset.value;
+    renderModelControls();
   });
 }
 
@@ -111,30 +122,37 @@ function setView(view) {
 
 function renderModels() {
   const select = $('#modelSelect');
+  const previous = state.selectedModelId || select.value;
   select.innerHTML = state.models.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+  if (state.models.some((m) => m.id === previous)) select.value = previous;
+  else if (state.models[0]) select.value = state.models[0].id;
+  state.selectedModelId = select.value;
+  applySelectedModelDefaults();
+  renderModelControls();
+
   const list = $('#modelsList');
   list.innerHTML = state.models.map((m) => `
     <div class="model-row" data-model-id="${esc(m.id)}">
       <div class="row-title">
         <span>${esc(m.name)}</span>
-        <span class="pill">${esc(m.status)}</span>
+        <span class="pill">${m.available ? 'local' : 'missing'}</span>
       </div>
       <div class="row-meta">${esc(m.description)}</div>
-      <div class="row-meta">quants: ${esc((m.quants || []).join(', '))}</div>
+      <div class="row-meta">quants: ${esc((m.quants || []).join(', '))} · modes: ${esc((m.memory_modes || []).join(', '))}</div>
+      <div class="row-meta">${m.local_path ? esc(m.local_path) : 'Set the Hugging Face cache path in Settings once the model is downloaded.'}</div>
       <div class="row-actions">
         <button class="small-btn" data-select-model="${esc(m.id)}">Select</button>
-        <button class="small-btn" data-download-model="${esc(m.id)}">${m.downloaded ? 'Downloaded' : 'Mark downloaded'}</button>
-        <button class="small-btn" data-load-model="${esc(m.id)}">Load</button>
+        <button class="small-btn" data-load-model="${esc(m.id)}" ${m.available ? '' : 'disabled'}>Load</button>
       </div>
     </div>
   `).join('');
   $$('[data-select-model]').forEach((btn) => btn.addEventListener('click', () => {
     select.value = btn.dataset.selectModel;
+    state.selectedModelId = select.value;
+    applySelectedModelDefaults();
+    renderModelControls();
+    syncActionAvailability();
     setView('generate');
-  }));
-  $$('[data-download-model]').forEach((btn) => btn.addEventListener('click', async () => {
-    await api.post('/api/models/download', currentLoadBody(btn.dataset.downloadModel));
-    await refreshAll();
   }));
   $$('[data-load-model]').forEach((btn) => btn.addEventListener('click', async () => {
     await api.post('/api/load', currentLoadBody(btn.dataset.loadModel));
@@ -149,13 +167,16 @@ function renderAssets() {
   $('#recentOutputs').innerHTML = outputs.slice(0, 6).map(assetCard).join('') || '<p class="hint">No outputs yet.</p>';
   $('#outputsGrid').innerHTML = outputs.map(assetCard).join('') || '<p class="hint">No outputs yet.</p>';
   bindAssetCards();
-  if (outputs[0]) showOutput(outputs[0]);
+  const selectedOutput = outputs.find((asset) => asset.id === state.currentOutputId) || outputs[0];
+  if (selectedOutput) showOutput(selectedOutput);
+  else clearOutput();
 }
 
 function assetCard(asset) {
-  const active = state.activeRefs.has(asset.id) ? ' active' : '';
+  const active = state.activeRefs.has(asset.id) || state.currentOutputId === asset.id ? ' active' : '';
   return `
     <div class="asset-card${active}" data-asset-id="${esc(asset.id)}" data-role="${esc(asset.role)}">
+      <button class="asset-delete" data-delete-asset="${esc(asset.id)}" type="button" aria-label="Delete ${esc(asset.name)}">&times;</button>
       <img src="${esc(asset.url)}" alt="">
       <div class="asset-name">${esc(asset.name)}</div>
     </div>
@@ -176,6 +197,22 @@ function bindAssetCards() {
       }
     });
   });
+  $$('[data-delete-asset]').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      await deleteAsset(btn.dataset.deleteAsset);
+    });
+  });
+}
+
+async function deleteAsset(id) {
+  const [scope, ...pathParts] = String(id || '').split('/');
+  if (!scope || !pathParts.length) return;
+  const filename = pathParts.map(encodeURIComponent).join('/');
+  await api.del(`/api/assets/${encodeURIComponent(scope)}/${filename}`);
+  state.activeRefs.delete(id);
+  if (state.currentOutputId === id) state.currentOutputId = '';
+  await refreshAll();
 }
 
 function renderLoras() {
@@ -228,10 +265,12 @@ function renderSettings(settings) {
 
 function renderStatus(status) {
   const engine = status.engine || {};
+  state.engine = engine;
   state.generating = Boolean(engine.running);
   $('#engineMode').textContent = engine.mode || 'mock';
   $('#loadedModel').textContent = engine.loaded_model_id || 'idle';
-  $('#generateBtn').disabled = state.generating;
+  renderMemory(engine.memory);
+  syncActionAvailability();
   $('#cancelBtn').disabled = !state.generating;
 }
 
@@ -244,11 +283,23 @@ function renderLogs(items) {
 }
 
 function showOutput(asset) {
+  state.currentOutputId = asset.id;
   $('#viewerTitle').textContent = asset.name;
   const meta = asset.meta || {};
   $('#viewerSub').textContent = meta.prompt || 'Output';
   $('#imageStage').innerHTML = `<img src="${esc(asset.url)}" alt="${esc(asset.name)}">`;
-  $('#memoryValue').textContent = meta.memory_mode || 'mock';
+}
+
+function clearOutput() {
+  state.currentOutputId = '';
+  $('#viewerTitle').textContent = 'Ready';
+  $('#viewerSub').textContent = 'FLUX.2 klein 4B is ready for local MLX testing.';
+  $('#imageStage').innerHTML = `
+    <div class="empty-state">
+      <div class="empty-mark"></div>
+      <p>Generated images will appear here.</p>
+    </div>
+  `;
 }
 
 async function generate() {
@@ -321,11 +372,12 @@ async function clearHfToken() {
 function connectEvents() {
   const es = new EventSource('/api/events');
   es.onmessage = () => {};
-  ['load', 'ready', 'download', 'generate', 'progress', 'complete', 'asset', 'cancel', 'cancelled', 'error', 'lora'].forEach((kind) => {
+  ['load', 'ready', 'download', 'generate', 'progress', 'complete', 'asset', 'cancel', 'cancelled', 'error', 'lora', 'memory'].forEach((kind) => {
     es.addEventListener(kind, async (event) => {
       const data = JSON.parse(event.data);
       addLogEvent(data);
-      if (data.payload?.active_memory) $('#memoryValue').textContent = data.payload.active_memory;
+      if (data.payload?.memory) renderMemory(data.payload.memory);
+      else if (data.payload?.active_memory) $('#memoryValue').textContent = data.payload.active_memory;
       if (['complete', 'asset', 'cancelled', 'error'].includes(kind)) {
         await refreshAll();
       }
@@ -354,6 +406,90 @@ function currentLoadBody(modelId) {
   };
 }
 
+function selectedModel() {
+  return state.models.find((model) => model.id === ($('#modelSelect').value || state.selectedModelId));
+}
+
+function applySelectedModelDefaults() {
+  const model = selectedModel();
+  if (!model) return;
+  if (!(model.quants || []).includes(state.quant)) state.quant = (model.quants || ['int4'])[0];
+  if (!(model.memory_modes || []).includes(state.memoryMode)) {
+    state.memoryMode = (model.memory_modes || ['resident'])[0];
+  }
+  if (state.lastModelDefaultsApplied !== model.id) {
+    $('#width').value = model.default_width || $('#width').value;
+    $('#height').value = model.default_height || $('#height').value;
+    $('#steps').value = model.default_steps || $('#steps').value;
+    $('#guidance').value = model.default_guidance ?? $('#guidance').value;
+    $('#stepsValue').textContent = $('#steps').value;
+    $('#guidanceValue').textContent = $('#guidance').value;
+    state.lastModelDefaultsApplied = model.id;
+    syncPreset();
+  }
+}
+
+function renderModelControls() {
+  const model = selectedModel();
+  if (!model) {
+    $('#modelMeta').textContent = 'No models registered.';
+    $('#quantGroup').innerHTML = '';
+    $('#memoryGroup').innerHTML = '';
+    return;
+  }
+  $('#modelMeta').textContent = model.available
+    ? 'Local cache ready'
+    : 'Missing from the configured Hugging Face cache.';
+  $('#modelMeta').title = model.local_path || '';
+  renderSegment($('#quantGroup'), model.quants || [], state.quant, quantLabel, model.notes || {});
+  renderSegment($('#memoryGroup'), model.memory_modes || [], state.memoryMode, modeLabel, model.notes || {});
+}
+
+function renderSegment(root, values, activeValue, labeler, notes) {
+  root.style.setProperty('--segment-count', Math.max(1, values.length));
+  root.innerHTML = values.map((value) => `
+    <button data-value="${esc(value)}" class="${value === activeValue ? 'active' : ''}" title="${esc(notes[value] || '')}">
+      ${esc(labeler(value))}
+    </button>
+  `).join('');
+}
+
+function quantLabel(value) {
+  return ({ int4: 'int4', int8: 'int8', bf16: 'bf16', fp16: 'fp16' })[value] || value;
+}
+
+function modeLabel(value) {
+  return ({ resident: 'resident', staged: 'staged', survival: 'survival' })[value] || value;
+}
+
+function syncActionAvailability() {
+  const model = selectedModel();
+  const needsLocalModel = (state.engine.mode || 'real') !== 'mock';
+  const canUseModel = Boolean(model) && (model.available || !needsLocalModel);
+  $('#generateBtn').disabled = state.generating || !canUseModel;
+}
+
+function renderMemory(memory) {
+  if (!memory) return;
+  const active = Number(memory.active_gb || 0);
+  const peak = Number(memory.peak_gb || 0);
+  const cache = Number(memory.cache_gb || 0);
+  const percent = Number.isFinite(Number(memory.percent))
+    ? Number(memory.percent)
+    : (peak > 0 ? Math.min(100, active / peak * 100) : 0);
+  $('#memoryValue').textContent = memory.available === false
+    ? 'unavailable'
+    : `${active.toFixed(2)} GB`;
+  $('#memoryFill').style.width = `${Math.max(0, Math.min(100, percent)).toFixed(1)}%`;
+  $('#memoryPeak').textContent = `peak ${peak.toFixed(2)} GB`;
+  $('#memoryCache').textContent = `cache ${cache.toFixed(2)} GB`;
+  state.memorySamples.push(Math.max(0, Math.min(100, percent)));
+  state.memorySamples = state.memorySamples.slice(-36);
+  $('#memoryStream').innerHTML = state.memorySamples.map((sample) => (
+    `<span style="height:${Math.max(4, sample).toFixed(1)}%"></span>`
+  )).join('');
+}
+
 function syncPreset() {
   const w = String($('#width').value);
   const h = String($('#height').value);
@@ -373,4 +509,3 @@ function esc(value) {
 }
 
 init();
-
