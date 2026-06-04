@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from surface.engine import GenerationRequest, LoraSelection, MockEngine, RealFlux2KleinEngine
+from surface.engine import GenerationRequest, LoraSelection, MockEngine, RealPipelineEngine
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -71,10 +71,16 @@ MODEL_REGISTRY = [
 ]
 
 
-def _create_engine() -> MockEngine | RealFlux2KleinEngine:
+# model_id -> "module:ClassName" of its MXPipeline. Add a line here to surface a new model.
+PIPELINES = {
+    "flux2-klein-4b": "mxdiffusers.flux.pipeline:MXFluxPipeline",
+}
+
+
+def _create_engine() -> MockEngine | RealPipelineEngine:
     if os.environ.get("MXALLOY_SURFACE_ENGINE", "real").lower() == "mock":
         return MockEngine()
-    return RealFlux2KleinEngine(lambda model_id: _model_dir_for(model_id))
+    return RealPipelineEngine(lambda model_id: _model_dir_for(model_id), PIPELINES)
 
 
 app = FastAPI(title="mxalloy local tester")

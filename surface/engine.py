@@ -1,8 +1,10 @@
 """Engine adapter boundary for the local tester surface.
 
-The UI can be built and exercised before the real generation graph is stable. Later,
-replace ``MockEngine`` with an adapter around the resident mxalloy engine while keeping
-the server/frontend contract intact.
+``RealPipelineEngine`` is model-agnostic: it routes a ``model_id`` to its registered
+``mxdiffusers`` pipeline (``MXFluxPipeline``, ``MXZimagePipeline``, …), keeps exactly one
+pipeline resident (loading a different model frees the previous — two 6B-class models won't
+co-reside on 18 GB), and drives the pipeline's ``on_step`` hook for progress so the UI never
+reimplements a model's denoise loop. ``MockEngine`` is the dependency-free stand-in.
 """
 
 from __future__ import annotations
@@ -159,21 +161,30 @@ class MockEngine:
         )
 
 
-class RealFlux2KleinEngine:
-    """Adapter around the resident native FLUX.2-klein engine used by the tester UI."""
+class RealPipelineEngine:
+    """Model-agnostic adapter around the resident mxdiffusers pipelines.
 
-    def __init__(self, model_dir_resolver: Callable[[str], str]) -> None:
+    ``pipeline_registry`` maps a ``model_id`` to a ``"module:ClassName"`` ``MXPipeline``. The
+    engine keeps one pipeline resident and swaps on model change.
+    """
+
+    def __init__(
+        self,
+        model_dir_resolver: Callable[[str], str],
+        pipeline_registry: dict[str, str],
+    ) -> None:
         self.mode = "real"
         self.loaded_model_id: str | None = None
         self.loaded_quant: str | None = None
         self.loaded_memory_mode: str | None = None
-        self._engine: Any | None = None
+        self._pipe: Any | None = None
         self._model_dir_resolver = model_dir_resolver
+        self._registry = pipeline_registry
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mxalloy-surface")
 
     async def load(self, model_id: str, quant: str, memory_mode: str, emit: Emit) -> None:
         if (
-            self._engine is not None
+            self._pipe is not None
             and self.loaded_model_id == model_id
             and self.loaded_quant == quant
             and self.loaded_memory_mode == memory_mode
@@ -184,6 +195,8 @@ class RealFlux2KleinEngine:
                 {"model_id": model_id, "memory": self.memory_snapshot()},
             )
             return
+        if model_id not in self._registry:
+            raise ValueError(f"No pipeline registered for model {model_id!r}")
 
         quant_bits = _quant_bits(quant)
         tile_latent = _tile_latent(memory_mode)
@@ -200,13 +213,13 @@ class RealFlux2KleinEngine:
             },
         )
         await self._run(self._dispose)
-        await self._run(self._build, model_dir, quant_bits, tile_latent)
+        await self._run(self._build, model_id, model_dir, quant_bits, tile_latent)
         self.loaded_model_id = model_id
         self.loaded_quant = quant
         self.loaded_memory_mode = memory_mode
         await emit(
             "ready",
-            "Real engine ready",
+            "Pipeline ready",
             {
                 "model_id": model_id,
                 "quant": quant,
@@ -233,17 +246,22 @@ class RealFlux2KleinEngine:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, partial(fn, *args))
 
-    def _build(self, model_dir: str, quant_bits: int | None, tile_latent: int | None) -> None:
-        from mxdiffusers.flux.engine import Flux2KleinEngine
+    def _pipeline_class(self, model_id: str) -> Any:
+        import importlib
 
-        self._engine = Flux2KleinEngine(
-            model_dir=model_dir,
-            quantize_bits=quant_bits,
-            vae_tile_latent=tile_latent,
+        module_path, class_name = self._registry[model_id].split(":")
+        return getattr(importlib.import_module(module_path), class_name)
+
+    def _build(
+        self, model_id: str, model_dir: str, quant_bits: int | None, tile_latent: int | None
+    ) -> None:
+        cls = self._pipeline_class(model_id)
+        self._pipe = cls.from_pretrained(
+            model_dir, quantize_bits=quant_bits, vae_tile_latent=tile_latent
         )
 
     def _dispose(self) -> None:
-        self._engine = None
+        self._pipe = None
         try:
             import mlx.core as mx
 
@@ -258,14 +276,8 @@ class RealFlux2KleinEngine:
         loop: asyncio.AbstractEventLoop,
         emit: Emit,
     ) -> dict[str, Any]:
-        if self._engine is None:
-            raise RuntimeError("Real engine is not loaded")
-
-        import mlx.core as mx
-
-        from mxdiffusers.flux.engine import _TEXT_ENCODER_OUT_LAYERS
-        from mxdiffusers.flux.latents import prepare_packed_latents, prepare_text_ids
-        from mxdiffusers.flux.scheduler import FlowMatchEulerScheduler
+        if self._pipe is None:
+            raise RuntimeError("Pipeline is not loaded")
 
         seed = req.seed if req.seed is not None else _stable_seed(req.prompt)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -283,61 +295,27 @@ class RealFlux2KleinEngine:
             },
         )
 
-        input_ids, attention_mask = self._engine.tokenizer.encode(req.prompt)
-        prompt_embeds = self._engine.text_encoder.get_prompt_embeds(
-            input_ids, attention_mask, _TEXT_ENCODER_OUT_LAYERS
-        )
-        text_ids = prepare_text_ids(prompt_embeds)
-        mx.eval(prompt_embeds)
-        _emit_sync(
-            loop,
-            emit,
-            "progress",
-            "Prompt encoded",
-            {"step": 0, "steps": req.steps, "memory": self.memory_snapshot()},
-        )
-
-        latents, latent_ids, latent_height, latent_width = prepare_packed_latents(
-            seed=seed, height=req.height, width=req.width, batch_size=1
-        )
-        image_seq_len = (req.height // 16) * (req.width // 16)
-        scheduler = FlowMatchEulerScheduler(
-            num_inference_steps=req.steps, image_seq_len=image_seq_len
-        )
-
-        for idx in range(req.steps):
-            noise = self._engine.transformer(
-                hidden_states=latents,
-                encoder_hidden_states=prompt_embeds,
-                timestep=scheduler.timesteps[idx],
-                img_ids=latent_ids,
-                txt_ids=text_ids,
-                guidance=req.guidance,
-            )
-            latents = scheduler.step(noise, idx, latents)
-            mx.eval(latents)
+        def on_step(step: int, total: int) -> None:
             _emit_sync(
                 loop,
                 emit,
                 "progress",
-                f"Step {idx + 1}/{req.steps}",
-                {
-                    "step": idx + 1,
-                    "steps": req.steps,
-                    "memory": self.memory_snapshot(),
-                },
+                f"Step {step}/{total}",
+                {"step": step, "steps": total, "memory": self.memory_snapshot()},
             )
 
-        packed = latents.reshape(1, latent_height, latent_width, latents.shape[-1]).transpose(
-            0, 3, 1, 2
+        result = self._pipe(
+            req.prompt,
+            seed=seed,
+            num_inference_steps=req.steps,
+            height=req.height,
+            width=req.width,
+            guidance=req.guidance,
+            on_step=on_step,
         )
-        decoded = self._engine.vae.decode_packed_latents(
-            packed, tile_latent=self._engine.vae_tile_latent
-        )
-        mx.eval(decoded)
-        image = self._engine._to_pil(decoded)
+        image = result.images[0]
 
-        filename = f"mxalloy_flux2_klein_{int(time.time())}_{seed}.png"
+        filename = f"mxalloy_{req.model_id}_{int(time.time())}_{seed}.png"
         path = output_dir / filename
         image.save(path)
         meta = {
