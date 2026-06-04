@@ -10,6 +10,7 @@ INTERNAL: requires mlx + transformers.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import mlx.core as mx
@@ -72,6 +73,7 @@ class Flux2KleinEngine:
         height: int = 1024,
         width: int = 1024,
         guidance: float = 1.0,
+        on_step: Callable[[int, int], None] | None = None,
     ) -> Image.Image:
         input_ids, attention_mask = self.tokenizer.encode(prompt)
         prompt_embeds = self.text_encoder.get_prompt_embeds(
@@ -96,6 +98,8 @@ class Flux2KleinEngine:
             )
             latents = scheduler.step(noise, t, latents)
             mx.eval(latents)
+            if on_step is not None:
+                on_step(t + 1, steps)
 
         packed = latents.reshape(1, latent_height, latent_width, latents.shape[-1]).transpose(
             0, 3, 1, 2
