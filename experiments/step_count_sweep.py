@@ -16,7 +16,7 @@ import mlx.core as mx
 import numpy as np
 from PIL import Image
 
-from mxalloy.models.flux2.engine import Flux2KleinEngine
+from mxdiffusers.flux.engine import Flux2KleinEngine
 
 PROMPT = "a brushed alloy sculpture under studio light"
 SEED = 42

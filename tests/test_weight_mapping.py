@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from mxalloy.models.flux2.weight_mapping import (
+from mxdiffusers.flux.weight_mapping import (
     remap_text_encoder_key,
     remap_transformer_key,
     remap_vae_decode_key,

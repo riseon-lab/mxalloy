@@ -13,7 +13,7 @@ import time
 
 import mlx.core as mx
 
-from mxalloy.models.flux2.engine import Flux2KleinEngine
+from mxdiffusers.flux.engine import Flux2KleinEngine
 
 PROMPT = "a brushed alloy sculpture under studio light"
 SEED = 42

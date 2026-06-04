@@ -234,7 +234,7 @@ class RealFlux2KleinEngine:
         return await loop.run_in_executor(self._executor, partial(fn, *args))
 
     def _build(self, model_dir: str, quant_bits: int | None, tile_latent: int | None) -> None:
-        from mxalloy.models.flux2.engine import Flux2KleinEngine
+        from mxdiffusers.flux.engine import Flux2KleinEngine
 
         self._engine = Flux2KleinEngine(
             model_dir=model_dir,
@@ -263,9 +263,9 @@ class RealFlux2KleinEngine:
 
         import mlx.core as mx
 
-        from mxalloy.models.flux2.engine import _TEXT_ENCODER_OUT_LAYERS
-        from mxalloy.models.flux2.latents import prepare_packed_latents, prepare_text_ids
-        from mxalloy.models.flux2.scheduler import FlowMatchEulerScheduler
+        from mxdiffusers.flux.engine import _TEXT_ENCODER_OUT_LAYERS
+        from mxdiffusers.flux.latents import prepare_packed_latents, prepare_text_ids
+        from mxdiffusers.flux.scheduler import FlowMatchEulerScheduler
 
         seed = req.seed if req.seed is not None else _stable_seed(req.prompt)
         output_dir.mkdir(parents=True, exist_ok=True)

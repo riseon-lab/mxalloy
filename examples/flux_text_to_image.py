@@ -49,7 +49,7 @@ def _parse_lora(spec: str) -> tuple[str, float]:
 def main() -> None:
     args = parse_args()
     # Imported lazily so `--help` works without MLX installed.
-    from mxalloy.models.flux2.engine import Flux2KleinEngine
+    from mxdiffusers.flux.engine import Flux2KleinEngine
 
     engine = Flux2KleinEngine(quantize_bits=args.bits)
     if args.lora:

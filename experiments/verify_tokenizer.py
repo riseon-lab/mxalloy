@@ -13,8 +13,8 @@ from mflux.models.common.config.config import ModelConfig  # noqa: F401  (ensure
 from mflux.models.common.tokenizer.tokenizer_loader import TokenizerLoader
 from mflux.models.flux2.weights.flux2_weight_definition import Flux2KleinWeightDefinition
 
-from mxalloy.models.flux2.loader import find_klein_model_dir
-from mxalloy.models.flux2.tokenizer import KleinTokenizer
+from mxdiffusers.flux.loader import find_klein_model_dir
+from mxdiffusers.flux.tokenizer import KleinTokenizer
 
 PROMPT = "a brushed alloy sculpture under studio light"
 

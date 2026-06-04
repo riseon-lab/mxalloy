@@ -1,4 +1,4 @@
-"""Flow-match Euler discrete scheduler for FLUX.2-klein (native MLX, no mflux dependency).
+"""Flow-match Euler discrete scheduler for FLUX.2-klein (ported from mflux; see PROVENANCE.md).
 
 klein is ``requires_sigma_shift=True``, so timesteps/sigmas use the resolution-dependent
 empirical-mu shift (a function of the image sequence length). The denoise step is a plain

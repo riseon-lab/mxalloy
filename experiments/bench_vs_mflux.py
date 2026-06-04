@@ -26,7 +26,7 @@ WARMUP, TIMED = 1, 2
 
 
 def build_mxalloy(size: int):
-    from mxalloy.models.flux2.engine import Flux2KleinEngine
+    from mxdiffusers.flux.engine import Flux2KleinEngine
 
     eng = Flux2KleinEngine(quantize_bits=4)
     return lambda: eng.generate(PROMPT, seed=SEED, steps=STEPS, height=size, width=size)

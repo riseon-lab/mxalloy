@@ -1,4 +1,4 @@
-"""Qwen3 text encoder for FLUX.2-klein (native MLX, no mflux dependency).
+"""Qwen3 text encoder for FLUX.2-klein (ported from mflux; see PROVENANCE.md).
 
 A faithful port of the Qwen3 decoder-stack text encoder: token embedding, N decoder
 layers (RMSNorm -> grouped-query attention with rotary embeddings -> RMSNorm -> SwiGLU

@@ -12,9 +12,9 @@ import mlx.core as mx
 from mflux.models.flux2.model.flux2_vae.vae import Flux2VAE as RefVAE
 
 from mxalloy.loader import QuantConfig, component_files, load_quantized
-from mxalloy.models.flux2.loader import find_klein_model_dir
-from mxalloy.models.flux2.vae import Flux2VAE as OurVAE
-from mxalloy.models.flux2.weight_mapping import remap_vae_decode_key
+from mxdiffusers.flux.loader import find_klein_model_dir
+from mxdiffusers.flux.vae import Flux2VAE as OurVAE
+from mxdiffusers.flux.weight_mapping import remap_vae_decode_key
 
 _BF16 = QuantConfig(bits=None)
 

@@ -12,8 +12,8 @@ from mflux.models.common.config.config import Config
 from mflux.models.flux2.latent_creator.flux2_latent_creator import Flux2LatentCreator
 from mflux.models.flux2.model.flux2_text_encoder.prompt_encoder import Flux2PromptEncoder
 
-from mxalloy.models.flux2.latents import prepare_packed_latents, prepare_text_ids
-from mxalloy.models.flux2.scheduler import FlowMatchEulerScheduler
+from mxdiffusers.flux.latents import prepare_packed_latents, prepare_text_ids
+from mxdiffusers.flux.scheduler import FlowMatchEulerScheduler
 
 
 def _diff(a: mx.array, b: mx.array) -> float:

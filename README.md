@@ -42,7 +42,7 @@ Attention **speed** is a tracked work-in-progress: the v1 MMA flash kernel is co
 - `mxalloy/attention`: fused quantized-KV attention — pure-MLX fallback (the live primitive). An experimental compiled Metal `Primitive` lives in `research/attention_kernel/` (frozen; not built by default)
 - `mxalloy/kernels`: Metal kernel registry + launch abstractions
 - `mxalloy/config.py`, `mxalloy/errors.py`: public config dataclasses + exception hierarchy
-- `mxalloy/models`: model adapters (e.g. FLUX.2-klein + tiled VAE) — consume the core, never the reverse
+- `mxdiffusers/`: the diffusion framework (diffusers-style pipelines, e.g. FLUX) that runs *on* mxalloy — consumes the runtime, never the reverse
 - `benchmarks`: repeatable performance + memory tests
 - `research/`: frozen experiments (the compiled attention kernel)
 - `surface`: lean local tester UI

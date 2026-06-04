@@ -18,14 +18,14 @@ import numpy as np
 from huggingface_hub import snapshot_download
 from PIL import Image
 
-from mxalloy.models.flux2.latents import prepare_packed_latents, prepare_text_ids
+from mxdiffusers.flux.latents import prepare_packed_latents, prepare_text_ids
 from mxalloy.loader import QuantConfig, component_files, load_quantized
-from mxalloy.models.flux2.scheduler import FlowMatchEulerScheduler
-from mxalloy.models.flux2.text_encoder import Qwen3TextEncoder
-from mxalloy.models.flux2.tokenizer import KleinTokenizer
-from mxalloy.models.flux2.transformer import Flux2Transformer
-from mxalloy.models.flux2.vae import Flux2VAE
-from mxalloy.models.flux2.weight_mapping import (
+from mxdiffusers.flux.scheduler import FlowMatchEulerScheduler
+from mxdiffusers.flux.text_encoder import Qwen3TextEncoder
+from mxdiffusers.flux.tokenizer import KleinTokenizer
+from mxdiffusers.flux.transformer import Flux2Transformer
+from mxdiffusers.flux.vae import Flux2VAE
+from mxdiffusers.flux.weight_mapping import (
     remap_text_encoder_key,
     remap_transformer_key,
     remap_vae_decode_key,

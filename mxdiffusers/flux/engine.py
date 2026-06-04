@@ -17,14 +17,14 @@ import numpy as np
 from PIL import Image
 
 from mxalloy.loader import QuantConfig, component_files, load_quantized
-from mxalloy.models.flux2.latents import prepare_packed_latents, prepare_text_ids
-from mxalloy.models.flux2.loader import find_klein_model_dir
-from mxalloy.models.flux2.scheduler import FlowMatchEulerScheduler
-from mxalloy.models.flux2.text_encoder import Qwen3TextEncoder
-from mxalloy.models.flux2.tokenizer import KleinTokenizer
-from mxalloy.models.flux2.transformer import Flux2Transformer
-from mxalloy.models.flux2.vae import Flux2VAE
-from mxalloy.models.flux2.weight_mapping import (
+from mxdiffusers.flux.latents import prepare_packed_latents, prepare_text_ids
+from mxdiffusers.flux.loader import find_klein_model_dir
+from mxdiffusers.flux.scheduler import FlowMatchEulerScheduler
+from mxdiffusers.flux.text_encoder import Qwen3TextEncoder
+from mxdiffusers.flux.tokenizer import KleinTokenizer
+from mxdiffusers.flux.transformer import Flux2Transformer
+from mxdiffusers.flux.vae import Flux2VAE
+from mxdiffusers.flux.weight_mapping import (
     remap_text_encoder_key,
     remap_transformer_key,
     remap_vae_decode_key,
@@ -110,7 +110,7 @@ class Flux2KleinEngine:
         ``loras`` = ``[(safetensors_path, strength), ...]``; pass ``[]`` to clear. Returns a
         ``{'applied': n, 'skipped': [...]}`` summary. Runtime-applied on the quantized weights.
         """
-        from mxalloy.models.flux2.lora import apply_loras, load_lora_file
+        from mxdiffusers.flux.lora import apply_loras, load_lora_file
 
         return apply_loras(
             self.transformer, [(load_lora_file(path), float(strength)) for path, strength in loras]
@@ -118,7 +118,7 @@ class Flux2KleinEngine:
 
     def clear_loras(self) -> None:
         """Remove all active LoRAs (restores the base bit-for-bit)."""
-        from mxalloy.models.flux2.lora import clear_loras
+        from mxdiffusers.flux.lora import clear_loras
 
         clear_loras(self.transformer)
 

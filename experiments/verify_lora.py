@@ -14,8 +14,8 @@ import os
 import numpy as np
 from huggingface_hub import snapshot_download
 
-from mxalloy.models.flux2.engine import Flux2KleinEngine
-from mxalloy.models.flux2.lora import apply_loras, clear_loras, load_lora_file
+from mxdiffusers.flux.engine import Flux2KleinEngine
+from mxdiffusers.flux.lora import apply_loras, clear_loras, load_lora_file
 
 SEED, PROMPT, H, W = 42, "a brushed alloy sculpture under studio light", 512, 512
 LORAS = {

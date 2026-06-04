@@ -1,9 +1,9 @@
 import time
 import statistics
 import mlx.core as mx
-from mxalloy.models.flux2.engine import Flux2KleinEngine
-from mxalloy.models.flux2.latents import prepare_packed_latents, prepare_text_ids
-from mxalloy.models.flux2.scheduler import FlowMatchEulerScheduler
+from mxdiffusers.flux.engine import Flux2KleinEngine
+from mxdiffusers.flux.latents import prepare_packed_latents, prepare_text_ids
+from mxdiffusers.flux.scheduler import FlowMatchEulerScheduler
 
 PROMPT = "a brushed alloy sculpture under studio light"
 SEED = 42

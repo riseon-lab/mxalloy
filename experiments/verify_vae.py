@@ -12,7 +12,7 @@ import mlx.core as mx
 from mflux.models.flux2.model.flux2_vae.vae import Flux2VAE as RefVAE
 from mlx.utils import tree_flatten, tree_unflatten
 
-from mxalloy.models.flux2.vae import Flux2VAE as OurVAE
+from mxdiffusers.flux.vae import Flux2VAE as OurVAE
 
 
 def main() -> None:

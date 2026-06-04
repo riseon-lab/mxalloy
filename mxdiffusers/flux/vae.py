@@ -1,4 +1,4 @@
-"""FLUX.2 VAE decoder (native MLX, no mflux dependency).
+"""FLUX.2 VAE decoder (ported from mflux; see PROVENANCE.md).
 
 A faithful port of the FLUX.2 VAE *decode* path (latents -> image): batch-norm-stat
 un-normalization, unpatchify, post-quant conv, then a conv decoder (conv_in -> mid block

@@ -14,7 +14,7 @@ from mflux.models.flux2.model.flux2_text_encoder.qwen3_text_encoder import (
 )
 from mlx.utils import tree_flatten, tree_unflatten
 
-from mxalloy.models.flux2.text_encoder import Qwen3TextEncoder as OurEncoder
+from mxdiffusers.flux.text_encoder import Qwen3TextEncoder as OurEncoder
 
 CFG = dict(
     vocab_size=128,

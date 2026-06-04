@@ -17,7 +17,7 @@ from mflux.models.flux2.model.flux2_transformer.transformer import (
 )
 from mlx.utils import tree_flatten
 
-from mxalloy.models.flux2.transformer import Flux2Transformer as OurTransformer
+from mxdiffusers.flux.transformer import Flux2Transformer as OurTransformer
 
 CFG = dict(
     in_channels=16,

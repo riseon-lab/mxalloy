@@ -20,7 +20,7 @@ from pathlib import Path
 
 import mlx.core as mx
 
-from mxalloy.models.flux2.engine import Flux2KleinEngine
+from mxdiffusers.flux.engine import Flux2KleinEngine
 
 RESOLUTIONS = [  # (width, height)
     (512, 512),

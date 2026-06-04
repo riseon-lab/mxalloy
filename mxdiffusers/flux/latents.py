@@ -1,4 +1,4 @@
-"""FLUX.2-klein latent preparation + packing (native MLX, no mflux dependency).
+"""FLUX.2-klein latent preparation + packing (ported from mflux; see PROVENANCE.md).
 
 Initial-noise latents, grid position ids (image), token ids (text), and the pack/unpack
 between spatial [B, C, H, W] and packed [B, H*W, C] layouts. Pure math.

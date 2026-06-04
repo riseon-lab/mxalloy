@@ -1,4 +1,4 @@
-"""FLUX.2-klein transformer (native MLX, no mflux dependency).
+"""FLUX.2-klein transformer (ported from mflux; see PROVENANCE.md).
 
 A faithful port of the FLUX.2 MMDiT: a stack of double-stream blocks (joint image/text
 attention) followed by single-stream blocks (parallel self-attention + MLP), with RoPE

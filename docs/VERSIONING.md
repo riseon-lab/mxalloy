@@ -10,7 +10,7 @@ The public API is:
 - The config dataclasses: `mxalloy.AlloyConfig`, `mxalloy.QuantizationConfig`, `mxalloy.RuntimeConfig`
 - The exception types in `mxalloy.errors`
 
-Everything else is **internal** and may change in any release — all of `mxalloy/attention`, `mxalloy/kernels`, `mxalloy/runtime`, and `mxalloy/models`. Model adapters (e.g. `mxalloy.models.flux2`) stay internal until the model-agnostic front door (`mxalloy.loader(...)`) is stabilised.
+Everything else is **internal** and may change in any release — all of `mxalloy/attention`, `mxalloy/kernels`, and `mxalloy/runtime`. Model implementations live in the separate `mxdiffusers` package (which depends on mxalloy); mxalloy itself ships no model code.
 
 ## The 0.x Promise: Stable Within Minor
 
