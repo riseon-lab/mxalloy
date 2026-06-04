@@ -68,12 +68,38 @@ MODEL_REGISTRY = [
             "survival": "smallest VAE tile",
         },
     },
+    {
+        "id": "z-image-turbo",
+        "name": "Z-Image Turbo 6B",
+        "status": "target",
+        "description": "Alibaba Tongyi S3-DiT (clean-room MLX). 8-step, guidance-free.",
+        "default_width": 1024,
+        "default_height": 1024,
+        "default_steps": 8,
+        "default_guidance": 0.0,
+        "quants": ["int4", "int8", "bf16"],
+        "memory_modes": ["resident"],
+        "license": "Apache-2.0",
+        "notes": {
+            "int4": "lowest memory",
+            "int8": "higher quality",
+            "bf16": "unquantized baseline",
+            "resident": "warm model, full VAE decode",
+        },
+    },
 ]
 
 
 # model_id -> "module:ClassName" of its MXPipeline. Add a line here to surface a new model.
 PIPELINES = {
     "flux2-klein-4b": "mxdiffusers.flux.pipeline:MXFluxPipeline",
+    "z-image-turbo": "mxdiffusers.zimage.pipeline:MXZimagePipeline",
+}
+
+# model_id -> Hugging Face cache repo dir (for resolving the local snapshot).
+_HF_REPOS = {
+    "flux2-klein-4b": "models--black-forest-labs--FLUX.2-klein-4B",
+    "z-image-turbo": "models--Tongyi-MAI--Z-Image-Turbo",
 }
 
 
@@ -458,29 +484,28 @@ def _model_dir_for(model_id: str) -> str:
     path = _local_model_path(model_id)
     if path is None:
         raise FileNotFoundError(
-            "FLUX.2-klein-4B was not found in the configured model cache. "
-            "Check Settings > Model cache or download black-forest-labs/FLUX.2-klein-4B first."
+            f"{model_id} was not found in the configured model cache. "
+            "Check Settings > Model cache, or download the model first."
         )
     return str(path)
 
 
 def _local_model_path(model_id: str) -> Path | None:
-    if model_id != "flux2-klein-4b":
+    repo = _HF_REPOS.get(model_id)
+    if repo is None:
         return None
     root = Path(_read_settings()["model_cache_path"]).expanduser()
     candidates = []
-    if _looks_like_klein_snapshot(root):
+    if _looks_like_model_snapshot(root):
         candidates.append(root)
-    hub_model_dir = root / "hub" / "models--black-forest-labs--FLUX.2-klein-4B"
-    direct_model_dir = root / "models--black-forest-labs--FLUX.2-klein-4B"
-    candidates.extend(sorted((hub_model_dir / "snapshots").glob("*")))
-    candidates.extend(sorted((direct_model_dir / "snapshots").glob("*")))
+    for base in (root / "hub" / repo, root / repo):
+        candidates.extend(sorted((base / "snapshots").glob("*")))
     candidates.extend(sorted(root.glob("snapshots/*")))
-    valid = [path for path in candidates if _looks_like_klein_snapshot(path)]
+    valid = [path for path in candidates if _looks_like_model_snapshot(path)]
     return valid[-1] if valid else None
 
 
-def _looks_like_klein_snapshot(path: Path) -> bool:
+def _looks_like_model_snapshot(path: Path) -> bool:
     return (
         (path / "transformer").is_dir()
         and (path / "text_encoder").is_dir()
