@@ -98,9 +98,13 @@ class ZImageEngine:
         height: int = 1024,
         width: int = 1024,
         guidance: float = 0.0,
+        cache_threshold: float = 0.0,
         on_step: Callable[[int, int], None] | None = None,
     ) -> Image.Image:
         cap = self._encode(prompt).astype(mx.bfloat16)
+        if hasattr(self.transformer, "reset_cache"):
+            self.transformer.reset_cache()
+        self.transformer.cache_threshold = cache_threshold
         lh, lw = height // 8, width // 8
         mx.random.seed(seed)
         latents = mx.random.normal((1, 16, lh, lw)).astype(mx.float32)

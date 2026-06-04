@@ -206,6 +206,22 @@ class ZImageTransformer(nn.Module):
         self.context_refiner = [block(False) for _ in range(n_refiner_layers)]
         self.layers = [block(True) for _ in range(n_layers)]
         self.final_layer = ZImageFinalLayer(dim, patch_dim)  # diffusers all_final_layer["2-1"]
+        # caching (configured by the engine): static caption cache + first-block cache
+        self.cache_threshold = 0.0
+        self._cached_caption = None
+        self._cached_caption_key = None
+        self._prev_first_block_output = None
+        self._prev_output = None
+        self.computed_count = 0
+        self.skipped_count = 0
+
+    def reset_cache(self) -> None:
+        self._cached_caption = None
+        self._cached_caption_key = None
+        self._prev_first_block_output = None
+        self._prev_output = None
+        self.computed_count = 0
+        self.skipped_count = 0
 
     def _patchify(self, image: mx.array) -> tuple[mx.array, int, int]:
         """(C, H, W) -> (H_t*W_t, patch_dim) with patch feature order (pH, pW, C)."""
@@ -241,27 +257,49 @@ class ZImageTransformer(nn.Module):
         img_pos = mx.stack([a0, hh.astype(mx.int32), ww.astype(mx.int32)], axis=-1)
         img_cos, img_sin = build_rope_cos_sin(img_pos, self.axes_dims, self.rope_theta)
 
-        # --- caption tokens + RoPE positions ---
-        cap = self.cap_embedder(cap_feats)[None]  # (1, cap_len, dim)
+        def r(c):  # (L, D/2) -> (1, L, 1, D/2) for broadcast over heads
+            return c[None, :, None, :]
+
+        # --- caption RoPE positions (fixed per generation) ---
         zeros = mx.zeros((cap_len,), mx.int32)
         cap_pos = mx.stack([mx.arange(1, cap_len + 1, dtype=mx.int32), zeros, zeros], axis=-1)
         cap_cos, cap_sin = build_rope_cos_sin(cap_pos, self.axes_dims, self.rope_theta)
 
-        def r(c):  # (L, D/2) -> (1, L, 1, D/2) for broadcast over heads
-            return c[None, :, None, :]
+        # caption embed + context-refine is timestep-independent -> cache once per generation
+        if self._cached_caption is not None and self._cached_caption_key is cap_feats:
+            cap = self._cached_caption
+        else:
+            cap = self.cap_embedder(cap_feats)[None]  # (1, cap_len, dim)
+            for blk in self.context_refiner:
+                cap = blk(cap, r(cap_cos), r(cap_sin), None)
+            mx.eval(cap)
+            self._cached_caption = cap
+            self._cached_caption_key = cap_feats
 
-        # refine separately, then join [image, caption]
+        # image refine is timestep-dependent (not cached)
         for blk in self.noise_refiner:
             x = blk(x, r(img_cos), r(img_sin), adaln)
-        for blk in self.context_refiner:
-            cap = blk(cap, r(cap_cos), r(cap_sin), None)
 
         unified = mx.concatenate([x, cap], axis=1)
         ucos = r(mx.concatenate([img_cos, cap_cos], axis=0))
         usin = r(mx.concatenate([img_sin, cap_sin], axis=0))
-        for blk in self.layers:
-            unified = blk(unified, ucos, usin, adaln)
 
+        # first-block cache: run layer 0; skip the rest if its step-to-step change is tiny
+        unified = self.layers[0](unified, ucos, usin, adaln)
+        if self.cache_threshold > 0.0:
+            prev = self._prev_first_block_output
+            if prev is not None and self._prev_output is not None:
+                diff = mx.mean(mx.abs(unified - prev)) / mx.mean(mx.abs(prev))
+                if diff.item() < self.cache_threshold:
+                    self.skipped_count += 1
+                    return self._prev_output
+            self._prev_first_block_output = unified
+
+        self.computed_count += 1
+        for blk in self.layers[1:]:
+            unified = blk(unified, ucos, usin, adaln)
         unified = self.final_layer(unified, adaln)  # (1, Lunified, patch_dim)
-        img_out = unified[0, : ht * wt]  # drop caption tail
-        return self._unpatchify(img_out, ht, wt)  # (C, H, W)
+        out = self._unpatchify(unified[0, : ht * wt], ht, wt)  # drop caption tail -> (C, H, W)
+        if self.cache_threshold > 0.0:
+            self._prev_output = out
+        return out

@@ -73,6 +73,7 @@ class Flux2KleinEngine:
         height: int = 1024,
         width: int = 1024,
         guidance: float = 1.0,
+        cache_threshold: float = 0.0,
         on_step: Callable[[int, int], None] | None = None,
     ) -> Image.Image:
         input_ids, attention_mask = self.tokenizer.encode(prompt)
@@ -80,6 +81,11 @@ class Flux2KleinEngine:
             input_ids, attention_mask, _TEXT_ENCODER_OUT_LAYERS
         )
         text_ids = prepare_text_ids(prompt_embeds)
+
+        # Reset transformer cache and configure threshold
+        if hasattr(self.transformer, "reset_cache"):
+            self.transformer.reset_cache()
+        self.transformer.cache_threshold = cache_threshold
 
         latents, latent_ids, latent_height, latent_width = prepare_packed_latents(
             seed=seed, height=height, width=width, batch_size=1

@@ -34,6 +34,7 @@ class MXZimagePipeline(MXPipeline):
         height: int = 1024,
         width: int = 1024,
         guidance: float = 0.0,
+        cache_threshold: float = 0.0,
         on_step: OnStep | None = None,
         **kwargs,
     ) -> MXResult:
@@ -44,6 +45,7 @@ class MXZimagePipeline(MXPipeline):
             height=height,
             width=width,
             guidance=guidance,
+            cache_threshold=cache_threshold,
             on_step=on_step,
         )
         return MXResult(images=[image], seed=seed)
