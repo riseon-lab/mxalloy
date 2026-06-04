@@ -11,9 +11,12 @@ from mxdiffusers.pipeline import MXPipeline, MXResult
 
 # Family pipelines pull in mlx (via their model graph), so expose them lazily — importing
 # ``mxdiffusers`` (and the MXPipeline base) stays light.
-_LAZY = {"MXFluxPipeline": "mxdiffusers.flux.pipeline"}
+_LAZY = {
+    "MXFluxPipeline": "mxdiffusers.flux.pipeline",
+    "MXZimagePipeline": "mxdiffusers.zimage.pipeline",
+}
 
-__all__ = ["MXPipeline", "MXResult", "MXFluxPipeline"]
+__all__ = ["MXPipeline", "MXResult", "MXFluxPipeline", "MXZimagePipeline"]
 
 
 def __getattr__(name: str):
