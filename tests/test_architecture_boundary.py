@@ -1,10 +1,10 @@
 """Architectural invariant: the mxalloy runtime never depends on the model layer.
 
 mxalloy is reusable Apple-Silicon infrastructure (streaming loader, device/runtime, attention
-primitives, quantization). Diffusion model implementations live in ``mxdiffusers``, which
-imports mxalloy — never the reverse. Keeping ``mxalloy ↛ mxdiffusers`` one-directional is what
-lets mxalloy ship as a clean, model-free (and mflux-free) package. This test is the
-enforcement: it parses every mxalloy module and fails on any import of ``mxdiffusers``.
+primitives, quantization). Model implementations live in sibling packages such as
+``mxdiffusers`` and ``mxtts``, which import mxalloy - never the reverse. Keeping mxalloy
+model-free is what lets it ship as clean reusable infrastructure. This test is the enforcement:
+it parses every mxalloy module and fails on any import of a model package.
 """
 
 from __future__ import annotations
@@ -37,8 +37,12 @@ def test_mxalloy_has_files() -> None:
     assert _py_files(), "no mxalloy files discovered"
 
 
-def test_mxalloy_never_imports_mxdiffusers() -> None:
+def test_mxalloy_never_imports_model_packages() -> None:
+    prefixes = ("mxdiffusers", "mxtts")
     offenders = sorted(
-        str(p.relative_to(_MXALLOY)) for p in _py_files() if _imports_prefix(p, "mxdiffusers")
+        f"{p.relative_to(_MXALLOY)} imports {prefix}"
+        for p in _py_files()
+        for prefix in prefixes
+        if _imports_prefix(p, prefix)
     )
-    assert not offenders, f"mxalloy (runtime) must not import mxdiffusers (models): {offenders}"
+    assert not offenders, f"mxalloy (runtime) must not import model packages: {offenders}"

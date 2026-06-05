@@ -9,9 +9,15 @@ from __future__ import annotations
 
 import pytest
 
-mx = pytest.importorskip("mlx.core")
+from tests._mlx import require_mlx_core
 
-from mxdiffusers.flux.vae import _DECODER_UPSCALE, Flux2VAE, _feather
+mx = require_mlx_core()
+try:
+    from mxdiffusers.flux.vae import _DECODER_UPSCALE, Flux2VAE, _feather
+except RuntimeError as exc:
+    if "No Metal device available" in str(exc):
+        pytest.skip(str(exc), allow_module_level=True)
+    raise
 
 
 def _stub_decoder(z: mx.array) -> mx.array:

@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.claude/
 dist/
 build/
 *.egg-info/
@@ -17,6 +18,7 @@ build/
 experiments/*.png
 experiments/*.log
 experiments/*.json
+experiments/_*/
 
 # experimental compiled attention extension (research/, frozen): keep sources, drop build outputs
 research/attention_kernel/build/
@@ -25,4 +27,3 @@ research/attention_kernel/_ext*.so
 # a locally-built artifact may be dropped next to the live module to A/B it
 mxalloy/attention/_ext*.so
 mxalloy/attention/*.metallib
-
