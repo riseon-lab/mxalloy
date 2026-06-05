@@ -34,7 +34,7 @@ class MXZimagePipeline(MXPipeline):
         height: int = 1024,
         width: int = 1024,
         guidance: float = 0.0,
-        cache_threshold: float = 0.0,
+        cache_threshold: float = 0.25,  # FBC is near-lossless on Z-Image -> on by default
         on_step: OnStep | None = None,
         **kwargs,
     ) -> MXResult:

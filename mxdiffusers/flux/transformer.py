@@ -437,23 +437,17 @@ class Flux2Transformer(nn.Module):
         self.proj_out = nn.Linear(
             self.inner_dim, patch_size * patch_size * self.out_channels, bias=False
         )
+        # Exact, output-neutral caches only (no lossy first-block cache on FLUX): the static
+        # context projection and RoPE tables are reused across the fixed-text denoise steps.
         self._cached_rope = None
         self._cached_rope_keys = None
         self._cached_context = None
         self._cached_context_key = None
-        self._prev_first_block_output = None
-        self._prev_transformer_output = None
-        self.cache_threshold = 0.0
-        self.computed_count = 0
-        self.skipped_count = 0
 
     def reset_cache(self):
-        self._prev_first_block_output = None
-        self._prev_transformer_output = None
+        # Clears the static-context cache (re-keyed per prompt anyway) for a fresh generation.
         self._cached_context = None
         self._cached_context_key = None
-        self.computed_count = 0
-        self.skipped_count = 0
 
     def __call__(
         self,
@@ -523,37 +517,8 @@ class Flux2Transformer(nn.Module):
 
         temb_mod_params_img = self.double_stream_modulation_img(temb)
         temb_mod_params_txt = self.double_stream_modulation_txt(temb)
-        
-        # 2. First Block Caching Check
-        cache_threshold = getattr(self, "cache_threshold", 0.0)
-        
-        # Execute block 0
-        encoder_hidden_states, hidden_states = self.transformer_blocks[0](
-            hidden_states=hidden_states,
-            encoder_hidden_states=encoder_hidden_states,
-            temb_mod_params_img=temb_mod_params_img,
-            temb_mod_params_txt=temb_mod_params_txt,
-            image_rotary_emb=concat_rotary_emb,
-        )
-        
-        first_block_output = hidden_states
-        
-        if cache_threshold > 0.0:
-            prev_first_block_output = getattr(self, "_prev_first_block_output", None)
-            prev_transformer_output = getattr(self, "_prev_transformer_output", None)
-            
-            if prev_first_block_output is not None and prev_transformer_output is not None:
-                num = mx.mean(mx.abs(first_block_output - prev_first_block_output))
-                diff = num / mx.mean(mx.abs(prev_first_block_output))
-                if diff.item() < cache_threshold:
-                    self.skipped_count += 1
-                    return prev_transformer_output
-            
-            self._prev_first_block_output = first_block_output
 
-        self.computed_count += 1
-        # Execute blocks 1 to N-1
-        for block in self.transformer_blocks[1:]:
+        for block in self.transformer_blocks:
             encoder_hidden_states, hidden_states = block(
                 hidden_states=hidden_states,
                 encoder_hidden_states=encoder_hidden_states,
@@ -573,9 +538,4 @@ class Flux2Transformer(nn.Module):
 
         hidden_states = hidden_states[:, encoder_hidden_states.shape[1] :, ...]
         hidden_states = self.norm_out(hidden_states, temb)
-        out = self.proj_out(hidden_states)
-        
-        if cache_threshold > 0.0:
-            self._prev_transformer_output = out
-            
-        return out
+        return self.proj_out(hidden_states)

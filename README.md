@@ -32,7 +32,7 @@ Apple Silicon already runs diffusion via [mflux](https://github.com/filipstrand/
 - **Faster end-to-end on constrained Macs.** ~**20% faster than mflux** at 512² and 1024² on 18 GB. The GEMMs are the *same* MLX kernels — the win is memory discipline: a smaller working set avoids the swap mflux falls into (its 1024² peak exceeds 18 GB).
 - **Resolution decoupled from VRAM.** Tiled VAE keeps the FLUX generation peak **flat at ~14.7 GB from 1024² to 2048²** (≤1024² is bit-exact).
 - **Two models, one API** — FLUX.2-klein and Z-Image-Turbo, both generating on 18 GB. Z-Image is a from-scratch MLX port against the diffusers reference (no mflux).
-- **Opt-in step caching.** A first-block cache gives ~1.3× as an opt-in *fast mode*; the exact context/caption-projection cache is always on (output-neutral).
+- **Step caching, per model.** The exact context/caption-projection cache is always on (output-neutral, both models); a first-block cache (~1.3×) is **on by default for Z-Image** (near-lossless there) and **excluded from FLUX** (where it would visibly shift the image).
 - **Resident + warm**, hot-swap LoRA (FLUX), embeddable on **stock MLX** — not a forked runtime.
 
 ## Measured (18 GB M3 Pro, 4-bit, warm)
@@ -59,7 +59,7 @@ Per-GEMM compute is identical to mflux (same MLX); mxalloy's edge is memory. See
 
 - **Public API:** `mxalloy.load_quantized` / `QuantConfig` / `component_files`, the config dataclasses, and `mxalloy.errors`. The `mxdiffusers` pipeline API (`from_pretrained`/`__call__`) is stabilizing.
 - **Attention:** the live primitive is pure-MLX. The compiled Metal kernel is frozen in `research/` — it's correct but, on the GEMM-bound diffusion path, memory-not-speed (it's for KV-cached/long-context workloads).
-- **First-block cache** is opt-in (`cache_threshold`, default off), a *fidelity-for-speed* trade: near-lossless on Z-Image at 0.25 (visually identical), but on FLUX at 0.25 it shifts the result **visibly** — a *different* image of comparable quality, not a degraded one. Tune the threshold per model.
+- **First-block cache** is enabled only where it's output-safe: **on by default for Z-Image** (`cache_threshold=0.25`, near-lossless — visually identical, ~1.3×) and **excluded from FLUX**, where at 0.25 it shifts the result to a *different* (comparable-quality) image. The exact context/RoPE caches are always on for both.
 
 ## License & provenance
 

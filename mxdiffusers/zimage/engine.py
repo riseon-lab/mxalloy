@@ -98,7 +98,7 @@ class ZImageEngine:
         height: int = 1024,
         width: int = 1024,
         guidance: float = 0.0,
-        cache_threshold: float = 0.0,
+        cache_threshold: float = 0.25,  # FBC is near-lossless on Z-Image -> on by default
         on_step: Callable[[int, int], None] | None = None,
     ) -> Image.Image:
         cap = self._encode(prompt).astype(mx.bfloat16)
