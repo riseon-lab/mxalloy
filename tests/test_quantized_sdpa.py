@@ -7,10 +7,9 @@ fallback as the oracle.
 
 from __future__ import annotations
 
-import pytest
+from tests._mlx import require_mlx_core
 
-mx = pytest.importorskip("mlx.core")
-
+mx = require_mlx_core()
 from mxalloy.attention import (
     QuantizedKV,
     quantize_kv,

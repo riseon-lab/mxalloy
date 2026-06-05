@@ -39,12 +39,26 @@ surface = [
 ]
 
 [project.urls]
-# Replace with the real repository before publishing.
-Homepage = "https://github.com/your-org/alloy"
-Repository = "https://github.com/your-org/alloy"
+Homepage = "https://github.com/riseon-lab/mxalloy"
+Repository = "https://github.com/riseon-lab/mxalloy"
+Issues = "https://github.com/riseon-lab/mxalloy/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["mxalloy"]
+packages = ["mxalloy", "mxdiffusers", "mxtts"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/assets/mxalloy-logo.png",
+  "/examples",
+  "/mxalloy",
+  "/mxdiffusers",
+  "/mxtts",
+  "/tests",
+  "/LICENSE",
+  "/NOTICE",
+  "/README.md",
+  "/pyproject.toml",
+]
 
 [tool.ruff]
 line-length = 100

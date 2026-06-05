@@ -1,11 +1,12 @@
 # Z-Image (`MXZimagePipeline`) — implementation spec
 
-Clean-room build target for the second mxdiffusers family. **Source-grounded** against the
+Clean-room transformer target for the second mxdiffusers family. **Source-grounded** against the
 official 🤗 diffusers reference (`huggingface/diffusers@main`:
 `src/diffusers/models/transformers/transformer_z_image.py`,
 `src/diffusers/pipelines/z_image/pipeline_z_image.py`) + the local checkpoint
-`Tongyi-MAI/Z-Image-Turbo` (Apache-2.0). **No mflux involvement** — this family owes nothing to
-mflux; diffusers is the correctness oracle (never a runtime dependency).
+`Tongyi-MAI/Z-Image-Turbo` (Apache-2.0). The transformer implementation is independent of
+mflux; the current package reuses shared FLUX-derived Qwen/VAE helpers, so provenance should be
+described as mixed until those helpers are re-derived or split.
 
 ## Architecture family
 
@@ -77,10 +78,10 @@ Not a dual-stream MMDiT like FLUX.
 
 | Component | Plan |
 |---|---|
-| Qwen3 text encoder | **Reuse** `mxdiffusers/flux/text_encoder.py` (same arch); extract `hidden_states[-2]`, dim 2560. Promote to a shared `mxdiffusers/text_encoders/qwen3.py`. |
+| Qwen3 text encoder | **Reuse** `mxdiffusers/flux/text_encoder.py` for now (same arch, but carries FLUX/mflux port provenance); extract `hidden_states[-2]`, dim 2560. Promote to an independently-derived shared `mxdiffusers/text_encoders/qwen3.py`. |
 | Tokenizer | **Reuse** the Qwen2 chat-template tokenizer (`enable_thinking=True`, no layer-stack). |
 | Scheduler | **New small variant**: static-shift flow-match Euler (`σ' = 3σ/(1+2σ)`). |
-| VAE | Z-Image uses flux-dev `AutoencoderKL` (16ch). **Verify** our `Flux2VAE` decoder is the same arch (FLUX.2 VAE may differ); reuse if compatible, else implement the standard AutoencoderKL decoder. |
+| VAE | Z-Image uses flux-dev `AutoencoderKL` (16ch). Current code reuses the compatible FLUX decoder helper; replace with an independently-derived standard AutoencoderKL decoder if we want wholly clean-room Z-Image provenance. |
 | Transformer | **New build** (NextDiT, above). The single-stream block, qk-norm, SwiGLU, RoPE-application, and timestep embed transfer in spirit from `mxdiffusers/flux/transformer.py`; 3D-RoPE construction, refiners, pad-tokens, and sequence packing are new. |
 | Loading | `mxalloy.load_quantized` + a `remap_zimage_*` map (diffusers keys → our modules). |
 
@@ -93,4 +94,5 @@ Not a dual-stream MMDiT like FLUX.
 6. `MXZimagePipeline(MXPipeline)` + register in `surface/server.py` PIPELINES + `MODEL_REGISTRY`.
 7. **Verify**: parity oracle is diffusers (not installed; pulls torch). Either install
    diffusers+torch in the dev venv as a dev-only oracle, or validate by generation quality on a
-   fixed seed. Clean-room: implement from this spec.
+   fixed seed. Clean-room transformer: implement from this spec and keep shared-helper
+   provenance visible until those helpers are replaced.

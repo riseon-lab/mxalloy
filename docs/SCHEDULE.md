@@ -1,16 +1,26 @@
 # mxalloy Build Plan (Phase 1 → 0.1)
 
 Milestone-based. Supersedes the klein-only schedule: mxalloy is generalizing from a FLUX.2
-engine into a reusable **Apple-Silicon optimization backbone** — fused Metal primitives +
-streaming quantized loader + tiled VAE — that heavy models (diffusion, LLMs, video DiT,
-vision-language) plug into. The FLUX.2 image suite is the proving ground; the custom
-primitives are the durable, model-agnostic moat.
+engine into a reusable **Apple-Silicon optimization backbone** — streaming quantized loader,
+tiled VAE, pure-MLX attention paths, and experimental Metal primitives — that heavy models
+(diffusion, LLMs, video DiT, vision-language, speech) plug into. The FLUX.2 image suite is the
+proving ground; reusable memory primitives are the durable, model-agnostic moat.
 
 ## Hats
 - **Engine/infra**: streaming loader, fused C++/Metal primitives, quant, resident runtime, LoRA.
-- **Models**: FLUX.2 image suite (klein-4B → 9B); a text bench (Llama 3.2 3B) to exercise the KV-cache kernel.
+- **Models**: FLUX.2 image suite (klein-4B → 9B), Z-Image Turbo, Miso TTS spike; a text bench (Llama 3.2 3B) to exercise the KV-cache kernel.
 - **Surface**: lean local Mac tester.
 - **Bench/QA**: benchmarks, tests, published numbers.
+
+## Language Ownership
+See `docs/ARCHITECTURE_SPLIT.md` for the repo-level plan.
+
+- **Python**: research, model adapters, checkpoint mapping, parity, experiments, benchmark harnesses.
+- **Metal/C++**: kernels, MLX custom primitives, ABI/package boundaries, primitive parity fixtures.
+- **Swift**: future resident runtime, memory planner, command orchestration, profiling hooks, app SDK, native service/UI.
+
+Do not rewrite mxalloy wholesale in Swift. Introduce Swift at the runtime/process boundary
+once the engine protocol and bridge strategy are reviewed.
 
 ## Non-negotiables
 1. **Performance/memory lead, measured.** Every milestone keeps the win measurable. Memory wins are proven; **speed claims ship only with measured numbers** (attention speed is a tracked WIP, not yet a claim).
@@ -22,7 +32,7 @@ primitives are the durable, model-agnostic moat.
 - **M1 streaming loader** — load → quantize → free; 4/8-bit; **3.89× / 2.10×** lower peak than mflux, recorded.
 - **M2 native klein-4B** — flow transformer + Qwen3 encoder + VAE + flow-match scheduler in MLX, **bit-exact vs mflux**, resident/warm. (Measured gen peak ~14.6 GB at 1024², VAE-decode-bound — *not* the old ≤6 GB target, which only described the denoise phase.)
 - **Tiled VAE decode** — overlapping feathered tiles cap decode at one 1024²-equivalent tile; gen peak **flat ~14.7 GB from 1024² to 2048²**; HD + 2048² run on 18 GB; ≤1024² bit-exact.
-- **Fused quantized-KV attention (v1)** — pure-MLX fallback (always-available oracle) + a compiled Metal `Primitive` (`NB_DOMAIN=mlx`, stock MLX). MMA flash kernel correct (parity 5e-4 across aligned + ragged shapes); inline on-chip dequant → **flat allocation, no global dequant spike**. Occupancy-bound (speed = A).
+- **Quantized-KV attention (v1)** — pure-MLX path is the shipped oracle/live primitive; the compiled Metal `Primitive` remains in `research/attention_kernel` until packaging and speed gates pass. MMA flash kernel parity exists across aligned + ragged shapes, but speed remains tracked in A.
 
 ## A — Attention core: speed + breadth
 - **v2 speed**: multi-simdgroup-per-threadgroup occupancy with **shared K/V staging**, **half-input MMA** (float accumulate), `QuantizedBlockLoader`, tile tuning.
@@ -54,6 +64,12 @@ primitives are the durable, model-agnostic moat.
 ## F — Surface wiring
 - Wire the lean tester to the **real resident engine** (currently mock generation): prompt/refs/LoRAs/dims/seed/steps, memory mode, output viewer, HF/cache/LoRA/output settings (secrets backend-side only).
 - **Done when**: install + run klein from the UI via the engine manager; add a LoRA/ref; view outputs.
+
+## F2 — Swift resident runtime plan
+- Write the Swift runtime design note before creating `native/`: process boundary, engine protocol, bridge strategy, memory-planner responsibilities, profiling/signpost policy, cancellation/error model.
+- Decide bridge sequence: short-term Swift host controlling a Python/MLX worker vs long-term Swift runtime calling C++/MLX/Metal primitives directly.
+- Keep `surface/` as a dogfood tester; do not grow FastAPI into the production runtime.
+- **Done when**: `docs/ARCHITECTURE_SPLIT.md` has an accepted design follow-up, the engine protocol is agreed, and the first `native/AlloyRuntime` scaffold has a reviewed boundary.
 
 ## G — Quant quality + memory-adaptive
 - Calibrated quant (data-aware scales, mixed precision); published PSNR/LPIPS vs bf16.

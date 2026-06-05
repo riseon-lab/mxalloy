@@ -25,6 +25,33 @@ def test_import_mxalloy_is_mlx_free() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
+def test_import_mxtts_is_heavy_dependency_free() -> None:
+    result = _run(
+        "import mxtts, sys; "
+        "leaked = sorted("
+        "m for m in sys.modules "
+        "if m in {'mlx', 'torch', 'torchaudio'} "
+        "or m.startswith(('mlx.', 'torch.', 'torchaudio.'))"
+        "); "
+        "assert not leaked, leaked"
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_import_miso_pipeline_is_heavy_dependency_free() -> None:
+    result = _run(
+        "from mxtts import MXMisoTTSPipeline; import sys; "
+        "leaked = sorted("
+        "m for m in sys.modules "
+        "if m in {'mlx', 'torch', 'torchaudio'} "
+        "or m.startswith(('mlx.', 'torch.', 'torchaudio.'))"
+        "); "
+        "assert MXMisoTTSPipeline.family == 'miso'; "
+        "assert not leaked, leaked"
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
 def test_public_symbols_are_exported() -> None:
     import mxalloy
 

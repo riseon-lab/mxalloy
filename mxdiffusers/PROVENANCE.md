@@ -25,8 +25,14 @@ oracle while mapping Black Forest Labs' FLUX.2-klein checkpoint.
   done the attribution requirement falls away. Until then, treat the FLUX family as
   mflux-derived for attribution purposes.
 
-## Z-Image (planned, `mxdiffusers/zimage`)
+## Z-Image (`mxdiffusers/zimage`)
 
-To be implemented **clean-room** against the official `diffusers` `ZImagePipeline` reference
-and the `Tongyi-MAI/Z-Image-Turbo` checkpoint (both Apache-2.0). mflux is not involved, so this
-family owes it nothing by construction.
+The Z-Image transformer was implemented clean-room against the official `diffusers`
+`ZImagePipeline` / `ZImageTransformer2DModel` reference and the
+`Tongyi-MAI/Z-Image-Turbo` checkpoint (Apache-2.0).
+
+Current caveat: `mxdiffusers/zimage` reuses the shared Qwen3 text encoder and VAE decoder helper
+from `mxdiffusers/flux`, and those helpers still carry the FLUX/mflux port lineage described
+above. Until those helpers are re-derived or moved to independent shared modules, describe
+Z-Image as "clean-room transformer; shared FLUX-derived helpers", not as wholly
+mflux-independent.

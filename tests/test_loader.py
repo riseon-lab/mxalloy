@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-mx = pytest.importorskip("mlx.core")
+from tests._mlx import require_mlx_nn
 
-from mlx import nn
-from mlx.utils import tree_flatten
+mx, nn, tree_flatten = require_mlx_nn()
 
 
 class _Net(nn.Module):

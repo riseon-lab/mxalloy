@@ -12,6 +12,15 @@ mlx-free, core↛models boundary holds, mflux not a runtime import, no secrets/w
 the streaming-load/tiled-VAE/LoRA engine is real and beats the reference). The gaps are
 **attribution, packaging hygiene, doc honesty, and automation** — not the code.
 
+## 2026-06-05 Review Update
+
+- Root `NOTICE` now carries the mflux MIT notice for the FLUX port lineage.
+- `pyproject.toml` repository URLs are no longer placeholders, and the wheel package list now
+  includes `mxdiffusers` and `mxtts`.
+- README/provenance now avoid calling FLUX clean-room. Z-Image is described as a clean-room
+  transformer with shared FLUX-derived Qwen/VAE helpers until those are independently split.
+- `.gitignore` now excludes local generated smoke-output folders.
+
 ## Hand-verified corrections to the audit
 
 - **FLUX.2-klein-4B license — CONFIRMED Apache-2.0, commercial use permitted** (HF model card:
@@ -28,10 +37,10 @@ the streaming-load/tiled-VAE/LoRA engine is real and beats the reference). The g
 
 | # | Issue | Where | Fix |
 |---|-------|-------|-----|
-| **B1** | mflux MIT attribution missing; "no mflux dependency" docstrings mislead on provenance | `mxalloy/models/flux2/*` | Root `NOTICE` (mflux MIT + © Filip Strand, https://github.com/filipstrand/mflux); per-file "Ported from mflux (MIT)" header; reword docstrings → "no mflux *runtime* import; ported from mflux". Ship NOTICE in wheel+sdist. |
-| **B2** | sdist leaks `experiments/ research/ surface/ tests/ docs/ benchmarks/` **and `.claude/settings.local.json`** (local machine config) | `pyproject.toml` (no sdist target); `.gitignore` | Add `[tool.hatch.build.targets.sdist]` scoped to `mxalloy/ README.md LICENSE NOTICE pyproject.toml`; add `.claude/` to `.gitignore`; rebuild + re-inspect **both** wheel and sdist. |
-| **B3** | Placeholder URLs `github.com/your-org/alloy` ship in metadata | `pyproject.toml:41-44` | Set Homepage/Repository → `github.com/riseon-lab/mxalloy`; add Issues/Docs. |
-| **B4** | README headline still sells the **compiled Metal kernel we demoted to research/** as shipped | `README.md:14,16,26,27,63`; `docs/DESIGN_BRIEF.md` | Rewrite top-of-README to the pure-Python reality (streaming loader, tiled VAE, pure-MLX quantized-KV attention); move compiled-`Primitive` language to a "research, frozen, not shipped" note. |
+| **B1** | mflux MIT attribution must remain attached to the FLUX close port | `mxdiffusers/flux/*`, `NOTICE` | Root `NOTICE` added. Keep per-file/provenance wording honest until FLUX helpers are independently re-derived. |
+| **B2** | sdist must avoid leaking local/generated artifacts | `pyproject.toml`, `.gitignore` | sdist include list and `.claude/`/`experiments/_*/` ignores added; rebuild + inspect both wheel and sdist before release. |
+| **B3** | Placeholder URLs must not ship in metadata | `pyproject.toml` | Fixed to `github.com/riseon-lab/mxalloy`; add Docs URL when docs are public. |
+| **B4** | Docs must not sell the compiled Metal kernel as shipped | `README.md`, `docs/DESIGN_BRIEF.md`, `docs/SCHEDULE.md` | README and planning docs now frame the Metal primitive as research/frozen until gates pass. Recheck before release. |
 | **B5** | No documented path to generate an image; the vision's `mxalloy.loader(...)` **collides with the `loader` module** (not callable) | `README.md`, `docs/VERSIONING.md:13`, `engine.py:36` | Bless `Flux2KleinEngine` as the v0.1 public entry; write a copy-paste Quickstart. Rename the aspirational front door to `mxalloy.load(...)`/`generate(...)`, mark not-yet-shipped. *(see Decision 2)* |
 | **B6** | `pip install mxalloy` can't run anything (mlx is an extra) | `README.md:9,20` | Use `pip install "mxalloy[mlx]"` everywhere a user installs *to run*. |
 | **B7** | Documented `mxalloy.errors` hierarchy is **never raised** (loader raises `FileNotFoundError`) | `errors.py`, `loader.py:40` | Wire `loader.py:40 → ModelLoadError` (subclasses `RuntimeError`, stays catchable); drop error types v0.1 won't raise. |
