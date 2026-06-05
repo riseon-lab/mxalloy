@@ -1,63 +1,66 @@
 # mxalloy
 
-**The memory-lean MLX optimization layer for Apple Silicon** — fused Metal primitives, streaming quantized load, and tiled VAE that heavy models plug into.
+**The memory-lean inference runtime for Apple Silicon — plus `mxdiffusers`, a diffusers-style image stack built on it.**
 
-mxalloy is the bare-metal layer beneath MLX inference: it loads, quantizes, and runs large models on Apple Silicon with dramatically lower peak memory and no per-run reload. It started as a FLUX.2 diffusion engine and is generalizing into a reusable optimization backbone — the hardest parts (a custom fused **quantized-KV attention** `mlx::core::Primitive`, **streaming quantized load**, **tiled spatial VAE**) exposed so diffusion, LLM, video-DiT, and vision-language workloads can inherit the memory wins.
+`mxalloy` is the optimization layer beneath MLX: a streaming quantized model loader, device/runtime planning, tiled VAE decode, and attention primitives that let large models run on modest Apple Silicon with **dramatically lower peak memory** and no per-run reload. It ships no model code and is pure-Python.
 
-Two layers:
+`mxdiffusers` is the diffusion framework on top — a familiar `from_pretrained(...)` → `pipe(prompt)` API (**"diffusers for Mac"**) that delegates all the loading, quantization, and memory work to mxalloy. Two model families run today on an 18 GB Mac, through one `MXPipeline` base:
 
-- **Engine / infrastructure** (`pip install mxalloy`) — open, embeddable, performance-first. Custom `mlx::core::Primitive` + compiled Metal kernels (`NB_DOMAIN=mlx`, on stock MLX), the streaming loader, and tiled VAE. The thing apps, serving layers, and *other models* build on.
-- **Surface** — a lean local Mac tester to dogfood the engine (refs, LoRAs, outputs, settings). A test harness, not a consumer app.
+- **`MXFluxPipeline`** — FLUX.2-klein-4B (Black Forest Labs, Apache-2.0).
+- **`MXZimagePipeline`** — Z-Image-Turbo-6B (Alibaba Tongyi, Apache-2.0), implemented **clean-room**.
+
+## Quickstart
+
+```bash
+pip install "mxalloy[mlx]"                          # [mlx] is required to run a model
+huggingface-cli download black-forest-labs/FLUX.2-klein-4B
+```
+```python
+from mxdiffusers import MXFluxPipeline               # or: MXZimagePipeline
+
+pipe = MXFluxPipeline.from_pretrained("black-forest-labs/FLUX.2-klein-4B")  # 4-bit, resident
+image = pipe("a brushed alloy sculpture, studio light", num_inference_steps=4).images[0]
+image.save("out.png")
+```
+> Bare `pip install mxalloy` installs the mlx-free import surface (the loader/runtime API); the **`[mlx]` extra** pulls MLX and is required to actually load and run a model.
 
 ## Why mxalloy
 
-Apple Silicon already runs diffusion via [mflux](https://github.com/filipstrand/mflux) (open + broad, but "readability over performance" by its own README) and Draw Things (fast, but a closed app). mxalloy is the **open, embeddable optimization layer** in between — and increasingly model-agnostic:
+Apple Silicon already runs diffusion via [mflux](https://github.com/filipstrand/mflux) (open + broad) and Draw Things (fast, closed). mxalloy is the **open, embeddable optimization layer** in between — model-agnostic by design:
 
-- **Lowest peak memory, proven.** Streaming quantized load — **3.89× lower peak** than mflux on FLUX.2-klein-4B (4.6 vs 17.9 GB), same image. 8-bit fits 18 GB where mflux can't.
-- **Resolution decoupled from VRAM.** Tiled VAE keeps the generation peak **flat at ~14.7 GB from 1024² to 2048²**, unlocking HD + 2048² on an 18 GB Mac (≤1024² is bit-exact).
-- **Spike-free quantized-KV attention.** A compiled Metal `Primitive` that inline-dequantizes int8/int4 K/V into on-chip (threadgroup) memory — the 16-bit K/V **never reach the global heap**, deleting the per-step dequant spike that standard `dequant → SDPA` pays.
-- **Resident + warm.** Load once, generate many, hot-swap LoRA without reload — no MLX cold-start tax per run.
-- **Embeddable on stock MLX.** Typed API, semver, a `pip install` plug-in — not a forked runtime.
+- **Lowest peak memory, proven.** Streaming quantized load peaks at **4.5 GB** (4-bit) vs mflux's **17.9 GB** load-then-quantize on FLUX.2-klein-4B (**~3.9×**, same image). 8-bit fits 18 GB where mflux can't.
+- **Faster end-to-end on constrained Macs.** ~**20% faster than mflux** at 512² and 1024² on 18 GB. The GEMMs are the *same* MLX kernels — the win is memory discipline: a smaller working set avoids the swap mflux falls into (its 1024² peak exceeds 18 GB).
+- **Resolution decoupled from VRAM.** Tiled VAE keeps the FLUX generation peak **flat at ~14.7 GB from 1024² to 2048²** (≤1024² is bit-exact).
+- **Two models, one API** — FLUX.2-klein and Z-Image-Turbo, both generating on 18 GB. Z-Image is a from-scratch MLX port against the diffusers reference (no mflux).
+- **Opt-in step caching.** A first-block cache gives ~1.3× as an opt-in *fast mode*; the exact context/caption-projection cache is always on (output-neutral).
+- **Resident + warm**, hot-swap LoRA (FLUX), embeddable on **stock MLX** — not a forked runtime.
 
-## Proven so far
+## Measured (18 GB M3 Pro, 4-bit, warm)
 
-| Win | Result |
-|---|---|
-| Streaming load, 4-bit | 4.61 GB peak vs mflux 17.94 GB (**3.89×**) |
-| Streaming load, 8-bit | 8.56 GB peak vs mflux 17.94 GB (**2.10×**) |
-| Tiled VAE decode | gen peak **flat ~14.7 GB**, 1024² → 2048² (HD/2048² on 18 GB) |
-| Fused quantized-KV attention | compiled Metal kernel, parity 5e-4 vs oracle; **flat allocation** (no dequant spike) |
+| | mxalloy | mflux | |
+|---|---|---|---|
+| Load peak (klein-4B) | **4.5 GB** | 17.9 GB | ~3.9× lower |
+| 512² gen (4-step klein) | **14.3 s / 7.5 GB** | 17.7 s / 12.5 GB | |
+| 1024² gen (4-step klein) | **44.9 s / 14.6 GB** | 54.2 s / 19.7 GB* | *mflux swaps (>18 GB) |
+| Tiled VAE peak, 1024²→2048² | **flat ~14.7 GB** | scales with pixels | HD/2048² on 18 GB |
+| Z-Image-Turbo-6B | loads 6.2 GB, generates | — | clean-room MLX |
 
-Attention **speed** is a tracked work-in-progress: the v1 MMA flash kernel is correct and memory-flat but occupancy-bound (slower than MLX's tuned SDPA); the v2 speed pass is occupancy + half-MMA + `QuantizedBlockLoader`. See `docs/SCHEDULE.md`.
-
-## What it runs / targets
-
-- **Image suite:** FLUX.2-klein-4B (Apache-2.0, 4-step) shipping; scaling toward a **9B FLUX.2 profile** (feasibility on 18 GB). FLUX.1-schnell/dev are optional compatibility targets.
-- **Infrastructure target:** the fused attention core for **KV-cached / long-context / batched** text + multimodal workloads — validated against a **Llama 3.2 3B** decode bench (`benchmarks/benchmark_kv_cache.py`).
+Per-GEMM compute is identical to mflux (same MLX); mxalloy's edge is memory. See `docs/BENCHMARKS.md`.
 
 ## Repository map
 
-- `mxalloy/loader.py`: the core model-agnostic streaming quantized loader (`load_quantized`, `QuantConfig`, `component_files`)
-- `mxalloy/runtime`: device detection + memory-aware execution scheduling
-- `mxalloy/attention`: fused quantized-KV attention — pure-MLX fallback (the live primitive). An experimental compiled Metal `Primitive` lives in `research/attention_kernel/` (frozen; not built by default)
-- `mxalloy/kernels`: Metal kernel registry + launch abstractions
-- `mxalloy/config.py`, `mxalloy/errors.py`: public config dataclasses + exception hierarchy
-- `mxdiffusers/`: the diffusion framework (diffusers-style pipelines, e.g. FLUX) that runs *on* mxalloy — consumes the runtime, never the reverse
-- `benchmarks`: repeatable performance + memory tests
-- `research/`: frozen experiments (the compiled attention kernel)
-- `surface`: lean local tester UI
-- `docs`: design brief, build plan, versioning, errors
-- `experiments`: research spikes (streaming loader, tiled VAE, kernel prototypes)
+- **`mxalloy/`** — the runtime. `loader.py` (streaming quantized load: `load_quantized`, `QuantConfig`, `component_files`), `runtime/` (device + execution planning), `attention/` (pure-MLX fused quantized-KV attention — the live primitive), `kernels/`, `config.py` / `errors.py`.
+- **`mxdiffusers/`** — diffusers-style pipelines on mxalloy: `pipeline.py` (`MXPipeline` base), `flux/` (`MXFluxPipeline`), `zimage/` (`MXZimagePipeline`). Consumes the runtime; the runtime never imports it (enforced by `tests/test_architecture_boundary.py`).
+- **`surface/`** — a lean local Mac tester UI (model picker, LoRAs, refs, live memory). A test harness, not a product.
+- **`research/`** — frozen experiments: an *experimental* compiled Metal `Primitive` for quantized-KV attention (correct but memory-not-speed on diffusion; **not built or shipped** — the pure-MLX path is what ships).
+- **`benchmarks/`**, **`docs/`**, **`experiments/`** — repeatable benchmarks, design/versioning docs, research spikes.
 
-Public API: the engine API (forming) + config dataclasses + `mxalloy.errors`. Internals churn.
+## Honest status
 
-## Non-Goals (Phase 1)
+- **Public API:** `mxalloy.load_quantized` / `QuantConfig` / `component_files`, the config dataclasses, and `mxalloy.errors`. The `mxdiffusers` pipeline API (`from_pretrained`/`__call__`) is stabilizing.
+- **Attention:** the live primitive is pure-MLX. The compiled Metal kernel is frozen in `research/` — it's correct but, on the GEMM-bound diffusion path, memory-not-speed (it's for KV-cached/long-context workloads).
+- **First-block cache** is opt-in (`cache_threshold`, default off), a *fidelity-for-speed* trade: near-lossless on Z-Image at 0.25 (visually identical), but on FLUX at 0.25 it shifts the result **visibly** — a *different* image of comparable quality, not a degraded one. Tune the threshold per model.
 
-- A server/daemon (serving layers exist) or a consumer app (Draw Things).
-- Breadth in our *own* model adapters (start with FLUX.2) — the *primitives* are model-agnostic for others to use.
-- A forked MLX; CUDA parity; training.
-- At-rest encryption / moderation in the local tester.
+## License & provenance
 
-## Status
-
-Streaming loader, native klein-4B engine (bit-exact vs mflux), tiled VAE, and the fused quantized-KV attention `Primitive` (v1, on stock MLX) all run on 18 GB. Next: the attention speed pass + breadth (bf16/GQA/head-dims/masks), scikit-build-core packaging, the Llama-3.2-3B KV-cache proof, and 9B feasibility. See `docs/DESIGN_BRIEF.md` and `docs/SCHEDULE.md`.
+Apache-2.0. `mxalloy` contains no model code and no mflux lineage. `mxdiffusers/flux` was ported from / verified against [mflux](https://github.com/filipstrand/mflux) (MIT) — see `mxdiffusers/PROVENANCE.md`; `mxdiffusers/zimage` is clean-room against the `diffusers` reference. Model weights are downloaded under their own licenses (both shipping models are Apache-2.0); mxalloy bundles none.
