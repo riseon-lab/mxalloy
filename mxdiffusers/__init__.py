@@ -14,9 +14,18 @@ from mxdiffusers.pipeline import MXPipeline, MXResult
 _LAZY = {
     "MXFluxPipeline": "mxdiffusers.flux.pipeline",
     "MXZimagePipeline": "mxdiffusers.zimage.pipeline",
+    "MXSDXLPipeline": "mxdiffusers.sdxl.pipeline",
+    "MXAutoPipeline": "mxdiffusers.auto",
 }
 
-__all__ = ["MXPipeline", "MXResult", "MXFluxPipeline", "MXZimagePipeline"]
+__all__ = [
+    "MXAutoPipeline",
+    "MXFluxPipeline",
+    "MXPipeline",
+    "MXResult",
+    "MXSDXLPipeline",
+    "MXZimagePipeline",
+]
 
 
 def __getattr__(name: str):

@@ -25,6 +25,22 @@ oracle while mapping Black Forest Labs' FLUX.2-klein checkpoint.
   done the attribution requirement falls away. Until then, treat the FLUX family as
   mflux-derived for attribution purposes.
 
+## SDXL (`mxdiffusers/sdxl`)
+
+The SDXL family (UNet, dual CLIP text encoders, AutoencoderKL decoder, Euler scheduler) is an
+**independent MLX reimplementation derived from** the `diffusers` /`transformers` references
+(Apache-2.0, attributed in `NOTICE`) and the `stabilityai/stable-diffusion-xl-base-1.0`
+checkpoint configs — source-grounded, same approach as Z-Image (see `sdxl/SPEC.md`). It has
+**no mflux lineage** and shares no code with `mxdiffusers/flux`. Verified by per-component
+shape coverage, text-encoder numeric parity vs `transformers`, scheduler parity vs
+`diffusers`, and a same-latents black-box image comparison against the diffusers pipeline.
+
+## Shared modules (`mxdiffusers/lora.py`, `hub.py`, `auto.py`, `pipeline.py`)
+
+Original mxdiffusers code, no external lineage. The LoRA core was hoisted from the (mflux-
+attributed) flux family's runtime-LoRA implementation as generic delta-injection machinery;
+the per-family key conventions stay in each family's `lora.py`.
+
 ## Z-Image (`mxdiffusers/zimage`)
 
 The Z-Image transformer is an **independent MLX reimplementation derived from** the official

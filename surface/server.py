@@ -104,6 +104,29 @@ MODEL_REGISTRY = [
             "resident": "warm model, full VAE decode",
         },
     },
+    {
+        "id": "sdxl-base",
+        "name": "SDXL Base 1.0",
+        "status": "target",
+        "description": "Stability AI SDXL. Dual-CLIP conditioning, 30-step Euler CFG.",
+        "default_width": 1024,
+        "default_height": 1024,
+        "default_steps": 30,
+        "default_guidance": 5.0,
+        "quants": ["auto", "int4", "int8", "bf16"],
+        "memory_modes": ["auto", "resident"],
+        "supports_lora": True,
+        "lora_formats": ["diffusers/PEFT UNet safetensors"],
+        "license": "CreativeML Open RAIL++-M (weights)",
+        "notes": {
+            "auto": "planner chooses the best fit for this Mac",
+            "int4": "lowest memory (2.6 GB load peak measured)",
+            "int8": "higher quality",
+            "bf16": "unquantized baseline",
+            "auto_memory": "planner chooses available memory mode",
+            "resident": "warm model, full VAE decode",
+        },
+    },
 ]
 
 
@@ -111,12 +134,14 @@ MODEL_REGISTRY = [
 PIPELINES = {
     "flux2-klein-4b": "mxdiffusers.flux.pipeline:MXFluxPipeline",
     "z-image-turbo": "mxdiffusers.zimage.pipeline:MXZimagePipeline",
+    "sdxl-base": "mxdiffusers.sdxl.pipeline:MXSDXLPipeline",
 }
 
 # model_id -> Hugging Face cache repo dir (for resolving the local snapshot).
 _HF_REPOS = {
     "flux2-klein-4b": "models--black-forest-labs--FLUX.2-klein-4B",
     "z-image-turbo": "models--Tongyi-MAI--Z-Image-Turbo",
+    "sdxl-base": "models--stabilityai--stable-diffusion-xl-base-1.0",
 }
 
 WORKLOAD_SPECS = {
@@ -147,6 +172,21 @@ WORKLOAD_SPECS = {
             ActivationOption("resident", activation_peak_gb=9.0, vae_tile_latent=None),
         ),
         default_steps=8,
+    ),
+    "sdxl-base": WorkloadSpec(
+        name="SDXL Base 1024px",
+        components=(
+            ComponentSpec(
+                name="unet_text_vae",
+                # int4 measured (2.6 GB load peak); int8/bf16 scaled per-param from fp16 ~7 GB
+                precision_memory_gb={"bf16": 7.0, "int8": 4.0, "int4": 2.6},
+            ),
+        ),
+        activation_options=(
+            # measured 9.65 GB total gen peak at 1024^2 int4 (CFG batch-2) - 2.6 GB weights
+            ActivationOption("resident", activation_peak_gb=7.1, vae_tile_latent=None),
+        ),
+        default_steps=30,
     ),
 }
 
