@@ -5,33 +5,54 @@ build-backend = "hatchling.build"
 [project]
 name = "mxalloy"
 version = "0.1.0"
-description = "Apple Silicon-native AI inference acceleration for MLX and Metal."
+description = "Memory-lean AI inference runtime for Apple Silicon (MLX): streaming quantized loading, adaptive memory planning, and diffusion pipelines."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 authors = [
   { name = "Alloy Contributors" }
 ]
+keywords = [
+  "mlx",
+  "apple-silicon",
+  "metal",
+  "quantization",
+  "diffusion",
+  "flux",
+  "text-to-image",
+  "inference",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# The mxalloy core (mxalloy/) is stdlib-only; mlx itself is the [mlx] extra so the import
+# surface stays usable on any platform. numpy/pillow/transformers serve the bundled
+# mxdiffusers/mxtts pipeline packages.
 dependencies = [
-  "diffusers>=0.30",
-  "huggingface-hub>=0.23",
   "numpy>=1.26",
-  "packaging>=24.0",
   "pillow>=10.0",
-  "safetensors>=0.4",
-  "tqdm>=4.66",
   "transformers>=4.44"
 ]
 
 [project.optional-dependencies]
+# Required to actually load and run models (Apple Silicon only). Floor = oldest verified.
 mlx = [
-  "mlx>=0.15"
+  "mlx>=0.31"
 ]
 dev = [
   "pytest>=8.0",
   "ruff>=0.5",
   "mypy>=1.10"
 ]
+# Serves the repo-checkout tester UI (surface/ is not part of the wheel): pip install -e ".[surface]"
 surface = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",
@@ -43,6 +64,7 @@ Homepage = "https://github.com/riseon-lab/mxalloy"
 Repository = "https://github.com/riseon-lab/mxalloy"
 Issues = "https://github.com/riseon-lab/mxalloy/issues"
 
+# One distribution, three import packages: mxalloy (runtime), mxdiffusers, mxtts.
 [tool.hatch.build.targets.wheel]
 packages = ["mxalloy", "mxdiffusers", "mxtts"]
 
@@ -75,9 +97,17 @@ select = ["E", "F", "I", "UP", "B"]
 "tests/*" = ["E402"]
 
 [tool.mypy]
+# Strict-checked scope: the mxalloy core (ships py.typed). The mxdiffusers/mxtts model
+# packages are annotated but not yet strict-clean; widen the scope as they get there.
+files = ["mxalloy"]
 python_version = "3.11"
 strict = true
 warn_unreachable = true
+
+[[tool.mypy.overrides]]
+# mlx types its public surface via star re-exports; allow that idiom.
+module = "mlx.*"
+implicit_reexport = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

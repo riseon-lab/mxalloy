@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import mlx.core as mx
-from mlx import nn
+import mlx.nn as nn
 from mlx.utils import tree_flatten, tree_unflatten
 
 from mxalloy.errors import ModelLoadError
@@ -45,6 +45,12 @@ def component_files(model_dir: str | Path, component: str) -> list[str]:
 
 def _identity(key: str) -> str | None:
     return key
+
+
+def _flat_params(module: nn.Module) -> list[tuple[str, mx.array]]:
+    flat = tree_flatten(module.parameters())  # type: ignore[no-untyped-call]  # mlx untyped
+    assert isinstance(flat, list)  # no destination dict passed -> always the list form
+    return flat
 
 
 def load_quantized(
@@ -71,15 +77,17 @@ def load_quantized(
             bits=quant.bits,
             class_predicate=lambda _path, m: hasattr(m, "to_quantized"),
         )
-    targets = {k for k, _ in tree_flatten(module.parameters())}
+    targets = {k for k, _ in _flat_params(module)}
     quantized_bases = {k[: -len(".scales")] for k in targets if k.endswith(".scales")}
     updates: list[tuple[str, mx.array]] = []
     for path in files:
         weights = mx.load(path)  # lazy: nothing materialized until visited
+        if not isinstance(weights, dict):
+            raise ModelLoadError(f"{path} did not load as a tensor dict (not safetensors?)")
         for ckpt_key in list(weights.keys()):
             module_key = remap(ckpt_key)
             if module_key is None:
-                weights[ckpt_key] = None
+                del weights[ckpt_key]
                 continue
             weight = weights[ckpt_key]
             if transpose_conv and weight.ndim == 4:
@@ -98,8 +106,8 @@ def load_quantized(
             elif module_key in targets:
                 mx.eval(weight)
                 updates.append((module_key, weight))
-            weights[ckpt_key] = None  # release the bf16 source
+            del weights[ckpt_key]  # release the bf16 source
         del weights
     module.update(tree_unflatten(updates))
-    mx.eval(module.parameters())
+    mx.eval(module.parameters())  # type: ignore[no-untyped-call]  # mlx untyped
     return targets - {k for k, _ in updates}

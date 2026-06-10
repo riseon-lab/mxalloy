@@ -1,6 +1,6 @@
 """Alloy public package surface."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mxalloy.errors import AlloyError, ConfigurationError, ModelLoadError
 
@@ -21,7 +21,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):  # PEP 562: lazy, mlx-only-on-use
+def __getattr__(name: str) -> Any:  # PEP 562: lazy, mlx-only-on-use
     if name in _LAZY:
         from mxalloy import loader
 

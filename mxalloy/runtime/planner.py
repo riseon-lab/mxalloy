@@ -97,7 +97,7 @@ class ExecutionStrategy:
             return 8
         return None
 
-    def to_payload(self) -> dict:
+    def to_payload(self) -> dict[str, object]:
         return {
             "workload_name": self.workload_name,
             "precision": self.precision,
