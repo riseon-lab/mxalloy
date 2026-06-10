@@ -28,8 +28,8 @@ class MXFluxPipeline(MXPipeline):
         vae_tile_latent: int | None = 128,
         **kwargs,
     ) -> MXFluxPipeline:
-        # ``model_id`` is a local checkpoint directory, or None to resolve the cached
-        # FLUX.2-klein snapshot. (A general HF-id resolver lands with the adaptive loader.)
+        # ``model_id``: a local checkpoint directory, an HF repo id (resolved against the
+        # local HF cache — never downloaded), or None for the default cached klein snapshot.
         engine = Flux2KleinEngine(
             model_dir=model_id, quantize_bits=quantize_bits, vae_tile_latent=vae_tile_latent
         )

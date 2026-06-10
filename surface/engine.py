@@ -216,7 +216,11 @@ class RealPipelineEngine:
             raise ValueError(f"No pipeline registered for model {model_id!r}")
 
         quant_bits = _quant_bits(resolved_quant)
-        tile_latent = _tile_latent(resolved_memory_mode)
+        # The planner's WorkloadSpec is the source of truth for the VAE tile when a strategy
+        # exists; the memory-mode map is only the fallback for models with no spec.
+        tile_latent = (
+            strategy["vae_tile_latent"] if strategy else _tile_latent(resolved_memory_mode)
+        )
         model_dir = self._model_dir_resolver(model_id)
         await emit(
             "load",
@@ -294,7 +298,7 @@ class RealPipelineEngine:
         )
         if not strategy.fits and (quant == "auto" or memory_mode == "auto"):
             raise RuntimeError(strategy.reason)
-        return strategy.to_payload(), strategy.quant, strategy.memory_mode
+        return strategy.to_payload(), strategy.precision, strategy.memory_mode
 
     async def _run(self, fn: Callable[..., Any], *args: Any) -> Any:
         loop = asyncio.get_running_loop()
@@ -351,6 +355,9 @@ class RealPipelineEngine:
             self._active_lora_key = ()
             return {"active": [], "applied": 0, "skipped": []}
 
+        # set_lora_weights mutates the transformer; invalidate the key first so a failed
+        # apply can't leave a stale key that short-circuits the next identical request.
+        self._active_lora_key = ()
         summary = self._pipe.set_lora_weights([(path, strength) for _, path, strength in active])
         applied = int(summary.get("applied", 0))
         if applied <= 0:

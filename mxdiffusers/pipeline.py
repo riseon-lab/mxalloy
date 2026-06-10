@@ -64,6 +64,10 @@ class MXPipeline:
         raise NotImplementedError(f"{type(self).__name__} does not support LoRA")
 
     def set_lora_weights(self, loras: list[tuple[str, float]]) -> dict:
+        """Replace the full active LoRA set (each call replaces, not adds; ``[]`` clears)."""
+        if not loras:
+            self.unload_lora_weights()
+            return {"applied": 0, "skipped": []}
         if len(loras) == 1:
             path, scale = loras[0]
             return self.load_lora_weights(path, scale=scale)

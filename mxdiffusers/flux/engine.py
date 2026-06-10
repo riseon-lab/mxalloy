@@ -45,24 +45,28 @@ class Flux2KleinEngine:
         # <=1024**2 a single (bit-exact) tile while letting larger images tile to fit 18 GB.
         # None disables tiling (full decode). Override upward on roomier machines.
         self.vae_tile_latent = vae_tile_latent
-        model_dir = model_dir or find_klein_model_dir()
+        model_dir = find_klein_model_dir(model_dir)
         self.transformer = Flux2Transformer()
         self.text_encoder = Qwen3TextEncoder()
         self.vae = Flux2VAE()
         quant = QuantConfig(bits=quantize_bits)
-        load_quantized(
-            self.transformer, component_files(model_dir, "transformer"),
-            remap=remap_transformer_key, quant=quant,
-        )
-        load_quantized(
-            self.text_encoder, component_files(model_dir, "text_encoder"),
-            remap=remap_text_encoder_key, quant=quant,
-        )
-        # VAE stays bf16 (decode is the memory peak; tiling handles it, not quantization).
-        load_quantized(
-            self.vae, component_files(model_dir, "vae"),
-            remap=remap_vae_decode_key, quant=QuantConfig(bits=None),
-        )
+        # Param paths each load left unpopulated — a non-empty set means a remap regression
+        # (unmatched checkpoint keys are dropped without trace; this is the integrity check).
+        self.missing = {
+            "transformer": load_quantized(
+                self.transformer, component_files(model_dir, "transformer"),
+                remap=remap_transformer_key, quant=quant,
+            ),
+            "text_encoder": load_quantized(
+                self.text_encoder, component_files(model_dir, "text_encoder"),
+                remap=remap_text_encoder_key, quant=quant,
+            ),
+            # VAE stays bf16 (decode is the memory peak; tiling handles it, not quantization).
+            "vae": load_quantized(
+                self.vae, component_files(model_dir, "vae"),
+                remap=remap_vae_decode_key, quant=QuantConfig(bits=None),
+            ),
+        }
         self.tokenizer = KleinTokenizer(Path(model_dir) / "tokenizer")
 
     def generate(

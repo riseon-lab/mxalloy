@@ -478,8 +478,9 @@ class Flux2Transformer(nn.Module):
         temb = self.time_guidance_embed(timestep, guidance).astype(PRECISION)
 
         hidden_states = self.x_embedder(hidden_states)
-        
-        # 1. Redundant Projector Caching
+
+        # The context projection is prompt-constant across steps: compute once per generation
+        # (identity-keyed, reset by reset_cache), recompute on any new encoder states.
         if (
             getattr(self, "_cached_context", None) is not None
             and getattr(self, "_cached_context_key", None) is encoder_hidden_states
