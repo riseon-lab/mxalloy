@@ -6,6 +6,8 @@ import os
 import platform
 from dataclasses import dataclass
 
+from mxalloy.errors import ConfigurationError
+
 
 @dataclass(frozen=True, slots=True)
 class AppleSiliconDevice:
@@ -47,13 +49,19 @@ def detect_device_profile(
     ``memory_budget_gb`` is an optional cap for model planning. It represents the maximum model
     working set the caller wants to allow after OS/cache reserves have been considered.
     """
+    if memory_budget_gb is not None and memory_budget_gb < 0:
+        raise ConfigurationError(f"memory_budget_gb must be >= 0, got {memory_budget_gb}")
     device = detect_device()
     total = _system_memory_gb()
     if total is None:
-        working = max(0.0, memory_budget_gb or 0.0)
+        working = memory_budget_gb if memory_budget_gb is not None else 0.0
     else:
         physical_working = max(0.0, total - os_reserve_gb - safety_margin_gb)
-        working = min(physical_working, memory_budget_gb) if memory_budget_gb else physical_working
+        working = (
+            min(physical_working, memory_budget_gb)
+            if memory_budget_gb is not None
+            else physical_working
+        )
     return DeviceProfile(
         machine=device.machine,
         processor=device.processor,

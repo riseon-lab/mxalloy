@@ -14,16 +14,13 @@ from mxalloy.runtime.planner import (
     estimate_peak_gb,
     plan_execution,
 )
-from mxalloy.runtime.scheduler import ExecutionStep, RuntimeSchedule
 
 __all__ = [
     "ActivationOption",
     "AppleSiliconDevice",
     "ComponentSpec",
     "DeviceProfile",
-    "ExecutionStep",
     "ExecutionStrategy",
-    "RuntimeSchedule",
     "WorkloadSpec",
     "detect_device",
     "detect_device_profile",

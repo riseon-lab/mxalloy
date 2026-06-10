@@ -24,6 +24,8 @@ import mlx.core as mx
 from mlx import nn
 from mlx.utils import tree_flatten, tree_unflatten
 
+from mxalloy.errors import ModelLoadError
+
 
 @dataclass(frozen=True, slots=True)
 class QuantConfig:
@@ -37,7 +39,7 @@ def component_files(model_dir: str | Path, component: str) -> list[str]:
     """All safetensors shards for a sub-component dir (e.g. ``"transformer"``) of a model."""
     files = sorted(glob.glob(str(Path(model_dir) / component / "*.safetensors")))
     if not files:
-        raise FileNotFoundError(f"no safetensors for component {component!r} in {model_dir}")
+        raise ModelLoadError(f"no safetensors for component {component!r} in {model_dir}")
     return files
 
 

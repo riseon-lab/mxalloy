@@ -11,13 +11,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
+from mxalloy.errors import ConfigurationError
 from mxalloy.runtime.device import DeviceProfile
 
 Precision = Literal["bf16", "int8", "int4"]
 MemoryMode = Literal["resident", "staged", "survival"]
-PlanMode = Literal["quality", "balanced", "fast"]
 
 _PRECISION_LADDER: tuple[Precision, ...] = ("bf16", "int8", "int4")
+# Estimated bytes/param for mlx affine quantization at group_size=64 with fp16 scales+biases
+# ((bits + 4/64 * 32) / 8). Measured precision_memory_gb values bypass this estimate.
 _BYTES_PER_PARAM = {
     "bf16": 2.0,
     "int8": 1.06,
@@ -43,7 +45,7 @@ class ComponentSpec:
         if effective in self.precision_memory_gb:
             return float(self.precision_memory_gb[effective])
         if self.params is None:
-            raise ValueError(
+            raise ConfigurationError(
                 f"Component {self.name!r} needs params or precision_memory_gb for planning"
             )
         return self.params * _BYTES_PER_PARAM[effective] / 1024**3
@@ -60,6 +62,12 @@ class ActivationOption:
 
 @dataclass(frozen=True, slots=True)
 class WorkloadSpec:
+    """A model family's planning inputs.
+
+    ``activation_options`` must be ordered best-quality-first: the planner prefers earlier
+    options and only falls back to later (smaller-peak) ones when earlier ones don't fit.
+    """
+
     name: str
     components: tuple[ComponentSpec, ...]
     activation_options: tuple[ActivationOption, ...]
@@ -80,10 +88,6 @@ class ExecutionStrategy:
     fits: bool
     reason: str
     warnings: tuple[str, ...] = ()
-
-    @property
-    def quant(self) -> str:
-        return self.precision
 
     @property
     def quant_bits(self) -> int | None:
@@ -122,7 +126,6 @@ def plan_execution(
     device: DeviceProfile,
     workload: WorkloadSpec,
     *,
-    mode: PlanMode = "balanced",
     requested_precision: Precision | None = None,
     requested_memory_mode: MemoryMode | None = None,
 ) -> ExecutionStrategy:
@@ -152,7 +155,6 @@ def plan_execution(
                 activation=activation,
                 estimated=estimated,
                 device=device,
-                mode=mode,
                 fits=True,
                 reason=(
                     f"Selected {precision}/{activation.memory_mode}: estimated "
@@ -167,7 +169,6 @@ def plan_execution(
         activation=activation,
         estimated=estimated,
         device=device,
-        mode=mode,
         fits=False,
         reason=(
             f"No plan fits working set {device.working_set_gb:.2f} GB; smallest plan is "
@@ -189,7 +190,7 @@ def _activation_candidates(
         if activation.memory_mode == requested_memory_mode
     )
     if not matches:
-        raise ValueError(
+        raise ConfigurationError(
             f"Workload {workload.name!r} does not support memory mode {requested_memory_mode!r}"
         )
     return matches
@@ -202,14 +203,10 @@ def _strategy(
     activation: ActivationOption,
     estimated: float,
     device: DeviceProfile,
-    mode: PlanMode,
     fits: bool,
     reason: str,
     warnings: tuple[str, ...] = (),
 ) -> ExecutionStrategy:
-    steps = workload.default_steps
-    if mode == "fast":
-        steps = max(1, steps - 1)
     return ExecutionStrategy(
         workload_name=workload.name,
         precision=precision,
@@ -219,7 +216,7 @@ def _strategy(
         },
         memory_mode=activation.memory_mode,
         vae_tile_latent=activation.vae_tile_latent,
-        steps=steps,
+        steps=workload.default_steps,
         estimated_peak_gb=estimated,
         working_set_gb=device.working_set_gb,
         fits=fits,
