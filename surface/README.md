@@ -20,9 +20,6 @@ MXALLOY_REF_DIR=/path/to/refs \
 python3 -m uvicorn surface.server:app --reload --port 8787
 ```
 
-The current engine path is a mock adapter. It exercises the UI, settings, LoRA upload,
-reference images, output gallery, progress events, and API contract without waiting for
-the real resident generation graph.
-
-The real engine should replace `MockEngine` behind the same boundary in
-`surface/engine.py`.
+By default the surface uses the real resident pipeline engine. Set
+`MXALLOY_SURFACE_ENGINE=mock` when you only want to exercise the UI, settings, LoRA upload,
+reference images, output gallery, progress events, and API contract without loading models.

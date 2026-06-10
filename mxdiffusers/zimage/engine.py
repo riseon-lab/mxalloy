@@ -121,6 +121,20 @@ class ZImageEngine:
         mx.eval(decoded)
         return self._to_pil(decoded)
 
+    def set_loras(self, loras: list[tuple[str, float]]) -> dict:
+        """Hot-swap active LoRAs on the resident Z-Image transformer."""
+        from mxdiffusers.zimage.lora import apply_loras, load_lora_file
+
+        return apply_loras(
+            self.transformer, [(load_lora_file(path), float(strength)) for path, strength in loras]
+        )
+
+    def clear_loras(self) -> None:
+        """Remove all active LoRAs from the resident Z-Image transformer."""
+        from mxdiffusers.zimage.lora import clear_loras
+
+        clear_loras(self.transformer)
+
     @staticmethod
     def _to_pil(decoded: mx.array) -> Image.Image:
         x = mx.clip(decoded / 2 + 0.5, 0, 1)

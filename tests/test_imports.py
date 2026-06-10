@@ -71,8 +71,11 @@ def test_public_symbols_are_exported() -> None:
 
 
 def test_detect_device_returns_structured_result() -> None:
-    from mxalloy.runtime import detect_device
+    from mxalloy.runtime import DeviceProfile, WorkloadSpec, detect_device, plan_execution
 
     device = detect_device()
     assert isinstance(device.machine, str)
     assert isinstance(device.is_apple_silicon, bool)
+    assert DeviceProfile
+    assert WorkloadSpec
+    assert plan_execution

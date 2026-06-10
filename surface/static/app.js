@@ -7,8 +7,8 @@ const state = {
   selectedModelId: '',
   lastModelDefaultsApplied: '',
   currentOutputId: '',
-  quant: 'int4',
-  memoryMode: 'resident',
+  quant: 'auto',
+  memoryMode: 'auto',
   currentView: 'generate',
   generating: false,
   engine: {},
@@ -52,6 +52,7 @@ function bindUi() {
     state.selectedModelId = $('#modelSelect').value;
     applySelectedModelDefaults();
     renderModelControls();
+    renderLoras();
     syncActionAvailability();
   });
 
@@ -139,6 +140,8 @@ function renderModels() {
       </div>
       <div class="row-meta">${esc(m.description)}</div>
       <div class="row-meta">quants: ${esc((m.quants || []).join(', '))} · modes: ${esc((m.memory_modes || []).join(', '))}</div>
+      <div class="row-meta">LoRA: ${m.supports_lora ? esc((m.lora_formats || ['supported']).join(', ')) : 'not supported'}</div>
+      <div class="row-meta">${esc(strategySummary(m.recommended_strategy))}</div>
       <div class="row-meta">${m.local_path ? esc(m.local_path) : 'Set the Hugging Face cache path in Settings once the model is downloaded.'}</div>
       <div class="row-actions">
         <button class="small-btn" data-select-model="${esc(m.id)}">Select</button>
@@ -151,6 +154,7 @@ function renderModels() {
     state.selectedModelId = select.value;
     applySelectedModelDefaults();
     renderModelControls();
+    renderLoras();
     syncActionAvailability();
     setView('generate');
   }));
@@ -216,6 +220,7 @@ async function deleteAsset(id) {
 }
 
 function renderLoras() {
+  const loraSupported = selectedModel()?.supports_lora !== false;
   const renderRow = (lora, libraryOnly = false) => {
     const active = state.activeLoras.get(lora.id);
     const strength = active?.strength ?? 1;
@@ -223,7 +228,7 @@ function renderLoras() {
       <div class="lora-row${active ? ' active' : ''}" data-lora-id="${esc(lora.id)}">
         <div class="row-title">
           <span>${esc(lora.name)}</span>
-          <button class="small-btn" data-toggle-lora="${esc(lora.id)}">${active ? 'On' : 'Off'}</button>
+          <button class="small-btn" data-toggle-lora="${esc(lora.id)}" ${loraSupported ? '' : 'disabled'}>${active ? 'On' : 'Off'}</button>
         </div>
         <div class="row-meta">${esc(lora.id)} · ${lora.size_mb || 0} MB</div>
         ${active ? `<label class="slider-row"><span>Strength <b>${strength}</b></span><input type="range" min="0" max="2" step="0.05" value="${strength}" data-lora-strength="${esc(lora.id)}"></label>` : ''}
@@ -248,6 +253,7 @@ function renderLoras() {
 }
 
 function toggleLora(id) {
+  if (selectedModel()?.supports_lora === false) return;
   if (state.activeLoras.has(id)) state.activeLoras.delete(id);
   else state.activeLoras.set(id, { id, strength: 1, enabled: true });
   renderLoras();
@@ -272,6 +278,12 @@ function renderStatus(status) {
   renderMemory(engine.memory);
   syncActionAvailability();
   $('#cancelBtn').disabled = !state.generating;
+}
+
+function strategySummary(strategy) {
+  if (!strategy) return 'planner: unavailable';
+  const fit = strategy.fits ? 'fits' : 'does not fit';
+  return `planner: ${strategy.precision}/${strategy.memory_mode} · est ${strategy.estimated_peak_gb} GB · ${fit}`;
 }
 
 function renderLogs(items) {
@@ -313,7 +325,7 @@ async function generate() {
     guidance: Number($('#guidance').value),
     seed: $('#seed').value ? Number($('#seed').value) : null,
     refs: Array.from(state.activeRefs),
-    loras: Array.from(state.activeLoras.values()),
+    loras: selectedModel()?.supports_lora === false ? [] : Array.from(state.activeLoras.values()),
   };
   try {
     await api.post('/api/generate', body);
@@ -417,6 +429,10 @@ function applySelectedModelDefaults() {
   if (!(model.memory_modes || []).includes(state.memoryMode)) {
     state.memoryMode = (model.memory_modes || ['resident'])[0];
   }
+  if (model.supports_lora === false && state.activeLoras.size) {
+    state.activeLoras.clear();
+    renderLoras();
+  }
   if (state.lastModelDefaultsApplied !== model.id) {
     $('#width').value = model.default_width || $('#width').value;
     $('#height').value = model.default_height || $('#height').value;
@@ -438,8 +454,8 @@ function renderModelControls() {
     return;
   }
   $('#modelMeta').textContent = model.available
-    ? 'Local cache ready'
-    : 'Missing from the configured Hugging Face cache.';
+    ? `Local cache ready · LoRA ${model.supports_lora === false ? 'off' : 'ready'}`
+    : `Missing from the configured Hugging Face cache · LoRA ${model.supports_lora === false ? 'off' : 'ready'}`;
   $('#modelMeta').title = model.local_path || '';
   renderSegment($('#quantGroup'), model.quants || [], state.quant, quantLabel, model.notes || {});
   renderSegment($('#memoryGroup'), model.memory_modes || [], state.memoryMode, modeLabel, model.notes || {});
@@ -455,11 +471,11 @@ function renderSegment(root, values, activeValue, labeler, notes) {
 }
 
 function quantLabel(value) {
-  return ({ int4: 'int4', int8: 'int8', bf16: 'bf16', fp16: 'fp16' })[value] || value;
+  return ({ auto: 'auto', int4: 'int4', int8: 'int8', bf16: 'bf16', fp16: 'fp16' })[value] || value;
 }
 
 function modeLabel(value) {
-  return ({ resident: 'resident', staged: 'staged', survival: 'survival' })[value] || value;
+  return ({ auto: 'auto', resident: 'resident', staged: 'staged', survival: 'survival' })[value] || value;
 }
 
 function syncActionAvailability() {

@@ -1,7 +1,10 @@
 # mxalloy Adaptive Execution Strategy
 
-**Status: design proposal.** This document defines how mxalloy should *choose* an execution
-plan for a given workload and machine, balancing memory, speed, and quality. It is grounded in
+**Status: first implementation landed.** `mxalloy.runtime.planner.plan_execution(...)` now
+implements the deterministic memory-fit solver and the local surface exposes it through `auto`
+quant/memory modes. Hybrid precision and `fast` work-reduction remain benchmark-gated future
+work. This document defines how mxalloy should *choose* an execution plan for a given workload
+and machine, balancing memory, speed, and quality. It is grounded in
 measurements on an M3 Pro / 18 GB (`experiments/precision_microbench.py`,
 `experiments/perf_ceiling.py`) and is written as reusable infrastructure: FLUX.2-klein is the
 proof workload, not the subject. No `mxdiffusers` work is implied here.

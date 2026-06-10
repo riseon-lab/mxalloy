@@ -53,9 +53,10 @@ Apple Silicon already runs diffusion via [mflux](https://github.com/filipstrand/
 - **Lowest peak memory, proven.** Streaming quantized load peaks at **4.5 GB** (4-bit) vs mflux's **17.9 GB** load-then-quantize on FLUX.2-klein-4B (**~3.9×**, same image). 8-bit fits 18 GB where mflux can't.
 - **Faster end-to-end on constrained Macs.** ~**20% faster than mflux** at 512² and 1024² on 18 GB. The GEMMs are the *same* MLX kernels — the win is memory discipline: a smaller working set avoids the swap mflux falls into (its 1024² peak exceeds 18 GB).
 - **Resolution decoupled from VRAM.** Tiled VAE keeps the FLUX generation peak **flat at ~14.7 GB from 1024² to 2048²** (≤1024² is bit-exact).
+- **Adaptive fit planning.** `auto` mode detects the machine memory budget and picks the highest-quality quant/tile plan that fits, so 18 GB-class Macs land on the known-good int4/resident path instead of guessing.
 - **Two models, one API** — FLUX.2-klein and Z-Image-Turbo, both generating on 18 GB. Z-Image's transformer is a from-scratch MLX port against the diffusers reference; shared Qwen/VAE helpers are called out in provenance.
 - **Step caching, per model.** The exact context/caption-projection cache is always on (output-neutral, both models); a first-block cache (~1.3×) is **on by default for Z-Image** (near-lossless there) and **excluded from FLUX** (where it would visibly shift the image).
-- **Resident + warm**, hot-swap LoRA (FLUX), embeddable on **stock MLX** — not a forked runtime.
+- **Resident + warm**, hot-swap LoRA (FLUX + Z-Image), embeddable on **stock MLX** — not a forked runtime.
 
 ## Measured (18 GB M3 Pro, 4-bit, warm)
 
@@ -71,7 +72,7 @@ Per-GEMM compute is identical to mflux (same MLX); mxalloy's edge is memory. See
 
 ## Repository map
 
-- **`mxalloy/`** — the runtime. `loader.py` (streaming quantized load: `load_quantized`, `QuantConfig`, `component_files`), `runtime/` (device + execution planning), `attention/` (pure-MLX fused quantized-KV attention — the live primitive), `kernels/`, `config.py` / `errors.py`.
+- **`mxalloy/`** — the runtime. `loader.py` (streaming quantized load: `load_quantized`, `QuantConfig`, `component_files`), `runtime/` (device detection + adaptive execution planning), `attention/` (pure-MLX fused quantized-KV attention — the live primitive), `kernels/`, `config.py` / `errors.py`.
 - **`mxdiffusers/`** — diffusers-style pipelines on mxalloy: `pipeline.py` (`MXPipeline` base), `flux/` (`MXFluxPipeline`), `zimage/` (`MXZimagePipeline`). Consumes the runtime; the runtime never imports it (enforced by `tests/test_architecture_boundary.py`).
 - **`mxtts/`** — text-to-speech/audio pipelines on mxalloy: `pipeline.py` (`MXTTSPipeline` base), `miso/` (`MXMisoTTSPipeline`). The current Miso path is a hybrid upstream adapter while the native MLX backend is being mapped.
 - **`surface/`** — a lean local Mac tester UI (model picker, LoRAs, refs, live memory). A test harness, not a product.

@@ -9,7 +9,9 @@ workloads where that transient dequant spike dominates.
 Scope note (measured): this does **not** speed up the current klein 4-step txt2img path.
 That path has no KV cache (the diffusion transformer recomputes Q/K/V every step) and is
 GEMM-bound -- attention is ~0.7% of a step. The fused kernel pays off where attention is a
-real memory/latency cost: autoregressive decode, long context, and continuous batching.
+real memory/latency cost: autoregressive decode, long context, and continuous batching. Do
+not route klein through this path; quantizing one-use K/V would add overhead for no useful
+cache win.
 
 Two backends behind one API:
 

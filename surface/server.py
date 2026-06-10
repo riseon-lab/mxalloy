@@ -18,6 +18,13 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from mxalloy.runtime import (
+    ActivationOption,
+    ComponentSpec,
+    WorkloadSpec,
+    detect_device_profile,
+    plan_execution,
+)
 from surface.engine import GenerationRequest, LoraSelection, MockEngine, RealPipelineEngine
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -46,6 +53,8 @@ DEFAULT_SETTINGS = {
     ),
 }
 
+LORA_EXTENSIONS = {".safetensors", ".ckpt", ".pt", ".bin"}
+
 MODEL_REGISTRY = [
     {
         "id": "flux2-klein-4b",
@@ -56,13 +65,17 @@ MODEL_REGISTRY = [
         "default_height": 1024,
         "default_steps": 4,
         "default_guidance": 1.0,
-        "quants": ["int4", "int8", "bf16"],
-        "memory_modes": ["resident", "staged", "survival"],
+        "quants": ["auto", "int4", "int8", "bf16"],
+        "memory_modes": ["auto", "resident", "staged", "survival"],
+        "supports_lora": True,
+        "lora_formats": ["diffusion_model/ComfyUI-BFL safetensors"],
         "license": "Apache-2.0",
         "notes": {
+            "auto": "planner chooses the best fit for this Mac",
             "int4": "lowest memory",
             "int8": "quality default",
             "bf16": "unquantized baseline",
+            "auto_memory": "planner chooses VAE tile size",
             "resident": "warm model, 1024px VAE tile",
             "staged": "smaller VAE tile",
             "survival": "smallest VAE tile",
@@ -72,18 +85,22 @@ MODEL_REGISTRY = [
         "id": "z-image-turbo",
         "name": "Z-Image Turbo 6B",
         "status": "target",
-        "description": "Alibaba Tongyi S3-DiT (clean-room MLX). 8-step, guidance-free.",
+        "description": "Alibaba Tongyi S3-DiT. 8-step, guidance-free.",
         "default_width": 1024,
         "default_height": 1024,
         "default_steps": 8,
         "default_guidance": 0.0,
-        "quants": ["int4", "int8", "bf16"],
-        "memory_modes": ["resident"],
+        "quants": ["auto", "int4", "int8", "bf16"],
+        "memory_modes": ["auto", "resident"],
+        "supports_lora": True,
+        "lora_formats": ["diffusers/PEFT safetensors", "bf16/fp16/fp32 tensors"],
         "license": "Apache-2.0",
         "notes": {
+            "auto": "planner chooses the best fit for this Mac",
             "int4": "lowest memory",
             "int8": "higher quality",
             "bf16": "unquantized baseline",
+            "auto_memory": "planner chooses available memory mode",
             "resident": "warm model, full VAE decode",
         },
     },
@@ -102,11 +119,47 @@ _HF_REPOS = {
     "z-image-turbo": "models--Tongyi-MAI--Z-Image-Turbo",
 }
 
+WORKLOAD_SPECS = {
+    "flux2-klein-4b": WorkloadSpec(
+        name="FLUX.2 klein 4B 1024px",
+        components=(
+            ComponentSpec(
+                name="transformer_text_vae",
+                precision_memory_gb={"bf16": 17.9, "int8": 8.56, "int4": 4.54},
+            ),
+        ),
+        activation_options=(
+            ActivationOption("resident", activation_peak_gb=10.1, vae_tile_latent=128),
+            ActivationOption("staged", activation_peak_gb=8.2, vae_tile_latent=96),
+            ActivationOption("survival", activation_peak_gb=6.8, vae_tile_latent=64),
+        ),
+        default_steps=4,
+    ),
+    "z-image-turbo": WorkloadSpec(
+        name="Z-Image Turbo 6B 1024px",
+        components=(
+            ComponentSpec(
+                name="transformer_text_vae",
+                precision_memory_gb={"bf16": 25.0, "int8": 11.8, "int4": 6.2},
+            ),
+        ),
+        activation_options=(
+            ActivationOption("resident", activation_peak_gb=9.0, vae_tile_latent=None),
+        ),
+        default_steps=8,
+    ),
+}
+
 
 def _create_engine() -> MockEngine | RealPipelineEngine:
     if os.environ.get("MXALLOY_SURFACE_ENGINE", "real").lower() == "mock":
         return MockEngine()
-    return RealPipelineEngine(lambda model_id: _model_dir_for(model_id), PIPELINES)
+    return RealPipelineEngine(
+        lambda model_id: _model_dir_for(model_id),
+        PIPELINES,
+        WORKLOAD_SPECS,
+        lambda lora_id: str(_lora_path_for(lora_id)),
+    )
 
 
 app = FastAPI(title="mxalloy local tester")
@@ -134,16 +187,16 @@ class GenerateBody(BaseModel):
     steps: int = Field(4, ge=1, le=100)
     guidance: float = Field(1.0, ge=0.0, le=20.0)
     seed: int | None = None
-    quant: str = "int4"
-    memory_mode: str = "resident"
+    quant: str = "auto"
+    memory_mode: str = "auto"
     refs: list[str] = Field(default_factory=list)
     loras: list[LoraSelectionBody] = Field(default_factory=list)
 
 
 class LoadBody(BaseModel):
     model_id: str = "flux2-klein-4b"
-    quant: str = "int4"
-    memory_mode: str = "resident"
+    quant: str = "auto"
+    memory_mode: str = "auto"
 
 
 class SettingsBody(BaseModel):
@@ -171,6 +224,7 @@ def status() -> dict[str, Any]:
             "memory_mode": engine.loaded_memory_mode,
             "running": task_running,
             "job_id": current_job_id if task_running else None,
+            "strategy": getattr(engine, "last_strategy", None),
             "memory": engine.memory_snapshot(),
         },
         "settings": public_settings(),
@@ -187,6 +241,7 @@ def models() -> dict[str, Any]:
         row["downloaded"] = local_path is not None
         row["available"] = local_path is not None
         row["local_path"] = str(local_path) if local_path else None
+        row["recommended_strategy"] = _recommended_strategy(row["id"])
         items.append(row)
     return {"models": items}
 
@@ -220,7 +275,8 @@ async def generate(body: GenerateBody) -> dict[str, Any]:
         raise HTTPException(409, "Generation already running")
     if not body.prompt.strip():
         raise HTTPException(400, "Prompt is required")
-    _validate_model_options(body.model_id, body.quant, body.memory_mode)
+    model = _validate_model_options(body.model_id, body.quant, body.memory_mode)
+    _validate_lora_selections(model, body.loras)
 
     job_id = secrets.token_hex(8)
     current_job_id = job_id
@@ -280,7 +336,7 @@ def list_loras() -> dict[str, Any]:
     folder.mkdir(parents=True, exist_ok=True)
     items = []
     for path in sorted(folder.rglob("*")):
-        if path.is_file() and path.suffix.lower() in {".safetensors", ".ckpt", ".pt", ".bin"}:
+        if path.is_file() and path.suffix.lower() in LORA_EXTENSIONS:
             rel = path.relative_to(folder).as_posix()
             items.append(
                 {
@@ -296,7 +352,7 @@ def list_loras() -> dict[str, Any]:
 @app.post("/api/loras")
 async def upload_lora(file: Annotated[UploadFile, File(...)]) -> dict[str, Any]:
     filename = _safe_filename(file.filename or "adapter.safetensors")
-    if Path(filename).suffix.lower() not in {".safetensors", ".ckpt", ".pt", ".bin"}:
+    if Path(filename).suffix.lower() not in LORA_EXTENSIONS:
         raise HTTPException(400, "Unsupported LoRA file type")
     dest = _lora_dir() / filename
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -308,9 +364,7 @@ async def upload_lora(file: Annotated[UploadFile, File(...)]) -> dict[str, Any]:
 
 @app.delete("/api/loras/{lora_id:path}")
 async def delete_lora(lora_id: str) -> dict[str, Any]:
-    path = (_lora_dir() / lora_id).resolve()
-    if _lora_dir().resolve() not in path.parents:
-        raise HTTPException(400, "Invalid LoRA path")
+    path = _lora_path_for(lora_id)
     path.unlink(missing_ok=True)
     await publish("lora", "LoRA removed", {"id": lora_id})
     return {"status": "deleted", "id": lora_id}
@@ -479,6 +533,28 @@ def _validate_model_options(model_id: str, quant: str, memory_mode: str) -> dict
     return model
 
 
+def _validate_lora_selections(
+    model: dict[str, Any], loras: list[LoraSelectionBody]
+) -> None:
+    active = [item for item in loras if item.enabled]
+    if not active:
+        return
+    if not model.get("supports_lora", False):
+        raise HTTPException(400, f"{model['name']} does not support LoRAs")
+    for item in active:
+        _lora_path_for(item.id)
+
+
+def _recommended_strategy(model_id: str) -> dict[str, Any] | None:
+    spec = WORKLOAD_SPECS.get(model_id)
+    if spec is None:
+        return None
+    return plan_execution(
+        detect_device_profile(memory_budget_gb=_env_float("MXALLOY_MEMORY_BUDGET_GB")),
+        spec,
+    ).to_payload()
+
+
 def _model_dir_for(model_id: str) -> str:
     _model_or_404(model_id)
     path = _local_model_path(model_id)
@@ -533,6 +609,16 @@ def _read_secrets() -> dict[str, str]:
         return {}
 
 
+def _env_float(name: str) -> float | None:
+    value = os.environ.get(name)
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
 def public_settings() -> dict[str, Any]:
     settings = _read_settings()
     return {
@@ -553,6 +639,18 @@ def _write_private_json(path: Path, payload: dict[str, Any]) -> None:
 
 def _lora_dir() -> Path:
     return Path(_read_settings()["lora_folder_path"]).expanduser()
+
+
+def _lora_path_for(lora_id: str) -> Path:
+    root = _lora_dir().resolve()
+    path = (root / lora_id).resolve()
+    if path != root and root not in path.parents:
+        raise HTTPException(400, "Invalid LoRA path")
+    if not path.is_file():
+        raise HTTPException(404, f"LoRA not found: {lora_id}")
+    if path.suffix.lower() not in LORA_EXTENSIONS:
+        raise HTTPException(400, "Unsupported LoRA file type")
+    return path
 
 
 def _output_dir() -> Path:

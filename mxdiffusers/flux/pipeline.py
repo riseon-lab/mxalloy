@@ -61,5 +61,8 @@ class MXFluxPipeline(MXPipeline):
     def load_lora_weights(self, path: str, *, scale: float = 1.0) -> dict:
         return self._engine.set_loras([(str(path), float(scale))])
 
+    def set_lora_weights(self, loras: list[tuple[str, float]]) -> dict:
+        return self._engine.set_loras([(str(path), float(scale)) for path, scale in loras])
+
     def unload_lora_weights(self) -> None:
         self._engine.clear_loras()
