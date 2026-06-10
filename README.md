@@ -13,8 +13,24 @@ One `pip` distribution provides three import packages:
 | Package | What it is |
 |---|---|
 | `mxalloy` | The runtime: streaming quantized loader, device detection, memory-fit planner, attention primitives. Model-agnostic, stdlib-only imports, no model code. |
-| `mxdiffusers` | Diffusion pipelines on top — a `from_pretrained(...)` → `pipe(prompt)` API in the spirit of 🤗 diffusers, running FLUX.2-klein-4B and Z-Image-Turbo-6B on Apple Silicon. |
+| `mxdiffusers` | The diffusion framework on top — a `from_pretrained(...)` → `pipe(prompt)` API in the spirit of 🤗 diffusers, organised by **architecture**, not by individual model. |
 | `mxtts` | The matching speech stack. Its first pipeline adapts Miso TTS 8B via the upstream runtime while the native MLX backend is mapped. |
+
+### Architectures
+
+mxdiffusers targets the major modern diffusion architectures; one pipeline class covers every
+checkpoint of that architecture (base models, turbo variants, finetunes). Checkpoints are
+user-supplied; `MXAutoPipeline.from_pretrained(...)` routes any checkpoint to its pipeline by
+reading what the checkpoint declares.
+
+| Architecture | Pipeline | Example checkpoints | Status |
+|---|---|---|---|
+| SDXL | `MXSDXLPipeline` | SDXL Base, SDXL Turbo, SDXL finetunes | **Shipping** — verified vs the diffusers reference |
+| FLUX.2 | `MXFluxPipeline` | FLUX.2-klein-4B | **Shipping** — verified vs mflux |
+| Z-Image | `MXZimagePipeline` | Z-Image-Turbo-6B | **Shipping** — verified vs the diffusers reference |
+| FLUX.1 | planned | FLUX.1-schnell / dev / Kontext | Spec'd from the real checkpoint ([flux1/SPEC.md](mxdiffusers/flux1/SPEC.md)) — next up |
+| SD3 / SD3.5 | planned | SD3.5 Medium / Large | Blocked on the gated Stability license ([sd3/SPEC.md](mxdiffusers/sd3/SPEC.md)) |
+| Qwen-Image | planned (v1.1) | Qwen-Image 20B | Needs staged execution on ≤18 GB ([qwen_image/SPEC.md](mxdiffusers/qwen_image/SPEC.md)) |
 
 ## Who this is for
 
@@ -36,6 +52,7 @@ One `pip` distribution provides three import packages:
 - **~15–25% faster end-to-end** at both resolutions on an 18 GB machine — not from faster kernels, but from a working set that stays out of swap.
 - **Resolution decoupled from memory**: the pipeline's tiled VAE decode holds the generation peak flat through 2048²; at ≤1024² the single-tile path is bit-exact.
 - **Z-Image-Turbo-6B**: loads in 6.2 GB (4-bit) and generates on the same 18 GB machine.
+- **SDXL Base**: loads at a **2.6 GB** peak (4-bit) and generates 1024² at **3.3 s/step** with a 9.7 GB peak — vs 5.3 s/step for diffusers-on-MPS fp16 measured on the same machine; a same-latents comparison produces the same scene.
 - Numbers are from `benchmarks/` scripts on the stated hardware. We do not extrapolate to hardware we haven't measured.
 
 ## Installation
@@ -55,11 +72,18 @@ huggingface-cli download black-forest-labs/FLUX.2-klein-4B
 ```
 
 ```python
-from mxdiffusers import MXFluxPipeline   # or: MXZimagePipeline
+from mxdiffusers import MXAutoPipeline   # or MXSDXLPipeline / MXFluxPipeline / MXZimagePipeline
 
-pipe = MXFluxPipeline.from_pretrained("black-forest-labs/FLUX.2-klein-4B")  # 4-bit, resident
+pipe = MXAutoPipeline.from_pretrained("black-forest-labs/FLUX.2-klein-4B")  # 4-bit, resident
 image = pipe("a brushed alloy sculpture, studio light", num_inference_steps=4).images[0]
 image.save("out.png")
+```
+
+SDXL works the same way (30-step CFG defaults; SDXL-Turbo checkpoints want `num_inference_steps=1..4, guidance=0`):
+
+```python
+pipe = MXAutoPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0")
+image = pipe("a corgi wearing a tiny wizard hat, oil painting", seed=42).images[0]
 ```
 
 `from_pretrained` accepts a local checkpoint directory or a Hugging Face repo id resolved against your local HF cache. mxalloy is offline-first: it never downloads weights itself — if the checkpoint is missing it raises `ModelLoadError` with the exact download command.
@@ -83,11 +107,13 @@ assert not missing  # full coverage check
 │  your app / surface (repo-local tester UI)              │
 ├──────────────────────────┬──────────────────────────────┤
 │  mxdiffusers             │  mxtts                       │
-│  MXPipeline base         │  MXTTSPipeline base          │
-│  flux/  zimage/          │  miso/                       │
-│  (model graphs, VAE      │  (hybrid upstream adapter)   │
+│  MXPipeline base +       │  MXTTSPipeline base          │
+│  MXAutoPipeline router   │  miso/                       │
+│  sdxl/  flux/  zimage/   │  (hybrid upstream adapter)   │
+│  (model graphs, VAE      │                              │
 │  tiling, schedulers,     │                              │
-│  LoRA, step caches)      │                              │
+│  shared LoRA core,       │                              │
+│  step caches)            │                              │
 ├──────────────────────────┴──────────────────────────────┤
 │  mxalloy — the runtime                                  │
 │  loader.py    streaming quantized load (the core)       │
@@ -116,17 +142,18 @@ What each mechanism does:
 
 Provenance is tracked per family and carried in [`NOTICE`](NOTICE) / [`mxdiffusers/PROVENANCE.md`](mxdiffusers/PROVENANCE.md):
 
+- **`MXSDXLPipeline`** — SDXL Base/Turbo/finetunes (Stability AI weights, RAIL++-M). Independent MLX reimplementation derived from the Apache-2.0 diffusers/transformers references (attributed in `NOTICE`); no mflux lineage. Verified by shape coverage, text-encoder numeric parity, scheduler parity, and a same-latents image comparison against the diffusers pipeline.
 - **`MXFluxPipeline`** — FLUX.2-klein-4B (Black Forest Labs, Apache-2.0 weights). The implementation is a close MLX port of, and verified against, mflux (MIT, attributed in `NOTICE`). Re-deriving these modules independently is on the roadmap.
 - **`MXZimagePipeline`** — Z-Image-Turbo-6B (Alibaba Tongyi, Apache-2.0 weights). The transformer is an independent MLX reimplementation derived from the Apache-2.0 diffusers reference (attributed in `NOTICE`); it currently reuses the FLUX family's Qwen3 text-encoder and VAE-decoder helpers, which carry the port lineage above until they are re-derived.
 
 We say exactly what each module's lineage is, because that is what makes the Apache-2.0 packaging trustworthy.
 
-Both families support hot-swap LoRA (`load_lora_weights` / `set_lora_weights` / `unload_lora_weights` — replace semantics, applied to the resident quantized model without mutating base weights).
+All shipping families support hot-swap LoRA via a shared runtime-delta core (`load_lora_weights` / `set_lora_weights` / `unload_lora_weights` — replace semantics, applied to the resident quantized model without mutating base weights). Formats: BFL/ComfyUI keys for FLUX.2, diffusers/PEFT keys for Z-Image and SDXL UNets (kohya-flattened names are a documented TODO).
 
 ## What mxalloy is not
 
 - **Not a training framework.** Inference only.
-- **Not a model zoo.** Two image families and one speech adapter ship today; the runtime is the product, models are reference integrations.
+- **Not a model zoo.** Three diffusion architectures and one speech adapter ship today, and the unit of support is the *architecture* (one pipeline class covers a family's checkpoints and finetunes); the runtime is the product, checkpoints are user-supplied.
 - **Not a kernel fork.** Per-GEMM compute is stock MLX; we don't claim kernel-level speedups. The advantage is memory behaviour, and we say so.
 - **Not cross-platform.** Apple Silicon is the target. The mlx-free import surface exists so libraries and CI can depend on mxalloy without mlx, not to run models elsewhere.
 - **Not a GUI product.** `surface/` is a repo-local tester (model picker, LoRAs, live memory), not a shipped app.
@@ -134,7 +161,7 @@ Both families support hot-swap LoRA (`load_lora_weights` / `set_lora_weights` / 
 ## Repository map
 
 - [`mxalloy/`](mxalloy/) — the runtime (public API: `load_quantized`, `QuantConfig`, `component_files`, `mxalloy.errors`, `mxalloy.runtime` planning — see [docs/VERSIONING.md](docs/VERSIONING.md))
-- [`mxdiffusers/`](mxdiffusers/) — `MXPipeline` base + `flux/`, `zimage/` families
+- [`mxdiffusers/`](mxdiffusers/) — `MXPipeline` base, `MXAutoPipeline` router, shared LoRA core + `sdxl/`, `flux/`, `zimage/` families (and `flux1/`, `sd3/`, `qwen_image/` specs)
 - [`mxtts/`](mxtts/) — `MXTTSPipeline` base + `miso/` (hybrid upstream adapter; native MLX backend tracked in [docs/MISO_TTS_PLAN.md](docs/MISO_TTS_PLAN.md))
 - [`surface/`](surface/) — repo-local tester UI (`pip install -e ".[mlx,surface]"`)
 - [`benchmarks/`](benchmarks/), [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — repeatable benchmark scripts and measured results
@@ -152,12 +179,12 @@ Both families support hot-swap LoRA (`load_lora_weights` / `set_lora_weights` / 
 
 ## Roadmap
 
-1. **Independent shared modules** — re-derive the Qwen3 text encoder and VAE decoder as shared, lineage-free modules (removes the mflux attribution from the Z-Image path and deduplicates the families).
-2. **Re-derive the FLUX modules** from the checkpoint + published references, retiring the port lineage entirely.
-3. **Hybrid per-component precision and `fast` mode** in the planner — designed in [docs/EXECUTION_STRATEGY.md](docs/EXECUTION_STRATEGY.md), gated on benchmarks, not shipped until measured.
-4. **Native Miso TTS backend** — quantized streaming load for the 8B generator on MLX.
-5. **KV-cached workloads** — the quantized-KV attention primitive's actual target (long context, autoregressive decode).
-6. **A documented third-party model-family guide** — the `MXPipeline` contract and registration steps.
+1. **FLUX.1 architecture** (schnell/dev/Kontext) — spec'd from the real checkpoint ([flux1/SPEC.md](mxdiffusers/flux1/SPEC.md)). Built lineage-free: a shared T5 encoder, the verified SDXL CLIP-L, and a parameterised shared AutoencoderKL decoder.
+2. **Independent shared modules** — promoting that shared CLIP/T5/VAE work also retires the mflux-lineage helpers from the Z-Image path, and then the FLUX.2 modules get re-derived, retiring the port lineage entirely.
+3. **SD3/SD3.5** — once the gated Stability license is accepted ([sd3/SPEC.md](mxdiffusers/sd3/SPEC.md)); mostly MMDiT-graph work on top of the shared encoders.
+4. **Qwen-Image (v1.1)** — needs staged execution (encode → free the 7B encoder → denoise the 20B transformer) to fit ≤18 GB machines; the planner's `staged` mode is the vehicle ([qwen_image/SPEC.md](mxdiffusers/qwen_image/SPEC.md)).
+5. **Hybrid per-component precision and `fast` mode** in the planner — designed in [docs/EXECUTION_STRATEGY.md](docs/EXECUTION_STRATEGY.md), gated on benchmarks, not shipped until measured.
+6. **Native Miso TTS backend**; **KV-cached workloads** for the quantized-KV attention primitive; **a third-party model-family guide**.
 
 ## Contributing
 
