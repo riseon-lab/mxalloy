@@ -1,10 +1,12 @@
 # mxalloy Local Tester Surface
 
-Small local UI for dogfooding mxalloy while the engine is still moving.
+Small local UI for dogfooding mxalloy while the engine is still moving. It lives only in the
+repo checkout — it is not part of the published wheel.
 
 Run it from the repo root:
 
 ```bash
+pip install -e ".[mlx,surface]"   # the [surface] extra provides fastapi/uvicorn
 python3 -m uvicorn surface.server:app --reload --port 8787
 ```
 

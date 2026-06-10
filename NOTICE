@@ -4,6 +4,17 @@ mxalloy third-party notices
 mxalloy is Apache-2.0 licensed. Some model-family implementation code has additional
 third-party provenance obligations:
 
+diffusers
+---------
+
+The Z-Image transformer under `mxdiffusers/zimage` is an independent MLX reimplementation
+derived from the Hugging Face `diffusers` reference implementation
+(`ZImagePipeline` / `ZImageTransformer2DModel`).
+
+Upstream: https://github.com/huggingface/diffusers
+Copyright (c) The HuggingFace Team. Licensed under the Apache License, Version 2.0
+(http://www.apache.org/licenses/LICENSE-2.0). There is no diffusers runtime dependency.
+
 mflux
 -----
 

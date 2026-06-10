@@ -131,8 +131,8 @@ the core decides. Nothing in the planner mentions FLUX. An LLM adapter would han
 
 ## 3. Deliverable 5 — Proposed config structure
 
-Extends what already exists (`mxalloy/config.py`, `mxalloy/runtime/device.py`,
-`mxalloy/runtime/scheduler.py`) rather than greenfielding. All in the **core**, model-agnostic.
+Extends what already exists (`mxalloy/runtime/device.py`, `mxalloy/runtime/planner.py`)
+rather than greenfielding. All in the **core**, model-agnostic.
 
 ```python
 # mxalloy/runtime/device.py  — extend the existing AppleSiliconDevice
@@ -173,8 +173,9 @@ class ExecutionStrategy:
     estimated_peak_gb: float = 0.0    # the fit check that produced this plan
 ```
 
-The existing `RuntimeSchedule` / `ExecutionStep.estimated_memory_mb` become the peak estimator
-that feeds `estimated_peak_gb`. `QuantizationConfig` is subsumed by `precision` per component.
+The landed planner computes `estimated_peak_gb` directly from `ComponentSpec` /
+`ActivationOption` (the earlier `RuntimeSchedule`/`QuantizationConfig` sketches were superseded
+and deleted).
 
 ---
 

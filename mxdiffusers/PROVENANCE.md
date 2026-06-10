@@ -27,12 +27,15 @@ oracle while mapping Black Forest Labs' FLUX.2-klein checkpoint.
 
 ## Z-Image (`mxdiffusers/zimage`)
 
-The Z-Image transformer was implemented clean-room against the official `diffusers`
-`ZImagePipeline` / `ZImageTransformer2DModel` reference and the
-`Tongyi-MAI/Z-Image-Turbo` checkpoint (Apache-2.0).
+The Z-Image transformer is an **independent MLX reimplementation derived from** the official
+`diffusers` `ZImagePipeline` / `ZImageTransformer2DModel` reference (Apache-2.0, ©
+HuggingFace — attributed in `NOTICE`) and the `Tongyi-MAI/Z-Image-Turbo` checkpoint
+(Apache-2.0). It was written source-grounded — with the diffusers reference open as the
+correctness oracle (see `zimage/SPEC.md`) — so we deliberately do not call it "clean-room";
+Apache-2.0 permits this derivation with attribution, which `NOTICE` carries.
 
 Current caveat: `mxdiffusers/zimage` reuses the shared Qwen3 text encoder and VAE decoder helper
 from `mxdiffusers/flux`, and those helpers still carry the FLUX/mflux port lineage described
 above. Until those helpers are re-derived or moved to independent shared modules, describe
-Z-Image as "clean-room transformer; shared FLUX-derived helpers", not as wholly
+Z-Image as "independent transformer; shared FLUX-derived helpers", not as wholly
 mflux-independent.

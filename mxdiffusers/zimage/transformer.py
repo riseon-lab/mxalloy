@@ -1,7 +1,8 @@
 """Z-Image single-stream DiT (NextDiT / Lumina-2 family), native MLX.
 
-Clean-room reimplementation of diffusers' ``ZImageTransformer2DModel`` (Apache-2.0) for the
-batch-1 text-to-image path. See ``SPEC.md`` for the source-grounded architecture. The
+Independent MLX reimplementation derived from diffusers' ``ZImageTransformer2DModel``
+reference (Apache-2.0, attributed in ``NOTICE``) for the batch-1 text-to-image path. See
+``SPEC.md`` for the source-grounded architecture. The
 ``SEQ_MULTI_OF=32`` padding the reference uses is a no-op for a single sample under masked
 attention (pad tokens are masked out and their outputs discarded), so we run the exact,
 unpadded sequence ``[image_tokens, caption_tokens]`` with full attention — only the image
