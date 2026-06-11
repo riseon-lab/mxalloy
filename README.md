@@ -50,6 +50,7 @@ reading what the checkpoint declares.
 | Peak from 1024² → 2048² | **flat ~14.7 GB** (tiled VAE decode) | scales with pixels (~44.9 GB at 2048², OOM-class) |
 
 - **~15–25% faster end-to-end** at both resolutions on an 18 GB machine — not from faster kernels, but from a working set that stays out of swap.
+- The table's mxalloy klein rows predate the 2026-06-11 FLUX re-derivation; a same-machine, same-thermal-window A/B measured the re-derived implementation **~13% faster** (43.5 s vs 50.2 s, warm 1024² 4-step) at a **20% lower generation peak** (11.7 vs 14.65 GB) than the implementation those rows were taken with. The full benchmark refresh is a release-gate item.
 - **Resolution decoupled from memory**: the pipeline's tiled VAE decode holds the generation peak flat through 2048²; at ≤1024² the single-tile path is bit-exact.
 - **Z-Image-Turbo-6B**: loads in 6.2 GB (4-bit) and generates on the same 18 GB machine.
 - **SDXL Base**: loads at a **2.6 GB** peak (4-bit) and generates 1024² at **3.3 s/step** with a 9.7 GB peak — vs 5.3 s/step for diffusers-on-MPS fp16 measured on the same machine; a same-latents comparison produces the same scene.
