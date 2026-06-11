@@ -46,20 +46,17 @@ def test_transformer_drops_unknown_keys() -> None:
     assert remap_zimage_transformer_key("unrelated.weight") is None
 
 
-def test_text_encoder_strips_model_prefix() -> None:
-    assert remap_zimage_text_encoder_key("model.embed_tokens.weight") == "embed_tokens.weight"
-    assert (
-        remap_zimage_text_encoder_key("model.layers.3.mlp.gate_proj.weight")
-        == "layers.3.mlp.gate_proj.weight"
-    )
+def test_text_encoder_keeps_model_subtree() -> None:
+    for key in ("model.embed_tokens.weight", "model.layers.3.mlp.gate_proj.weight"):
+        assert remap_zimage_text_encoder_key(key) == key
     assert remap_zimage_text_encoder_key("lm_head.weight") is None
 
 
-def test_vae_is_decode_only_with_to_out_collapse() -> None:
-    assert remap_zimage_vae_key("decoder.conv_in.weight") == "decoder.conv_in.weight"
-    assert (
-        remap_zimage_vae_key("decoder.mid_block.attentions.0.to_out.0.weight")
-        == "decoder.mid_block.attentions.0.to_out.weight"
-    )
+def test_vae_is_decode_only_mirrored() -> None:
+    for key in (
+        "decoder.conv_in.weight",
+        "decoder.mid_block.attentions.0.to_out.0.weight",
+    ):
+        assert remap_zimage_vae_key(key) == key
     assert remap_zimage_vae_key("encoder.conv_in.weight") is None
     assert remap_zimage_vae_key("quant_conv.weight") is None

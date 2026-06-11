@@ -1,93 +1,55 @@
-"""FLUX.2-klein latent preparation + packing (ported from mflux; see PROVENANCE.md).
+"""FLUX.2 latent packing and position ids, native MLX.
 
-Initial-noise latents, grid position ids (image), token ids (text), and the pack/unpack
-between spatial [B, C, H, W] and packed [B, H*W, C] layouts. Pure math.
-
-INTERNAL: not part of the public API; requires mlx.
+Literal reimplementation of the reference pipeline's latent math (diffusers, Apache-2.0):
+32-channel latents are 2x2-patchified channel-major to 128, flattened row-major to a token
+sequence, and addressed by 4-axis (T, H, W, L) position ids — text tokens live on the L axis
+at the origin, image tokens on (H, W) with T=L=0. mlx-free shapes, mlx ops; INTERNAL.
 """
 
 from __future__ import annotations
 
 import mlx.core as mx
 
-PRECISION = mx.bfloat16
+
+def patchify(latents: mx.array) -> mx.array:
+    """(B, C, H, W) -> (B, 4C, H/2, W/2), channel-major 2x2 patches."""
+    b, c, h, w = latents.shape
+    x = latents.reshape(b, c, h // 2, 2, w // 2, 2)
+    x = x.transpose(0, 1, 3, 5, 2, 4)
+    return x.reshape(b, c * 4, h // 2, w // 2)
 
 
-def prepare_grid_ids(latents: mx.array, t_coord: int) -> mx.array:
-    batch_size, _, height, width = latents.shape
-    h_ids = mx.arange(height, dtype=mx.int32)
-    w_ids = mx.arange(width, dtype=mx.int32)
-    h_grid = mx.broadcast_to(mx.expand_dims(h_ids, axis=1), (height, width))
-    w_grid = mx.broadcast_to(mx.expand_dims(w_ids, axis=0), (height, width))
-    flat_h = h_grid.reshape(-1)
-    flat_w = w_grid.reshape(-1)
-    t = mx.full(flat_h.shape, t_coord, dtype=mx.int32)
-    layer_ids = mx.zeros_like(flat_h)
-    coords = mx.stack([t, flat_h, flat_w, layer_ids], axis=1)
-    coords = mx.expand_dims(coords, axis=0)
-    return mx.broadcast_to(coords, (batch_size, coords.shape[1], coords.shape[2]))
+def unpatchify(latents: mx.array) -> mx.array:
+    """(B, 4C, H, W) -> (B, C, 2H, 2W) — inverse of :func:`patchify`."""
+    b, c4, h, w = latents.shape
+    c = c4 // 4
+    x = latents.reshape(b, c, 2, 2, h, w)
+    x = x.transpose(0, 1, 4, 2, 5, 3)
+    return x.reshape(b, c, h * 2, w * 2)
 
 
-def pack_latents(latents: mx.array) -> mx.array:
-    batch_size, num_channels, height, width = latents.shape
-    return latents.reshape(batch_size, num_channels, height * width).transpose(0, 2, 1)
+def pack(latents: mx.array) -> mx.array:
+    """(B, C, H, W) -> (B, H*W, C), row-major token sequence."""
+    b, c, h, w = latents.shape
+    return latents.reshape(b, c, h * w).transpose(0, 2, 1)
 
 
-def prepare_latents(
-    seed: int,
-    height: int,
-    width: int,
-    batch_size: int,
-    num_latents_channels: int = 32,
-    vae_scale_factor: int = 8,
-) -> tuple[mx.array, mx.array, int, int]:
-    height = 2 * (height // (vae_scale_factor * 2))
-    width = 2 * (width // (vae_scale_factor * 2))
-    latent_height = height // 2
-    latent_width = width // 2
-    latents = mx.random.normal(
-        shape=(batch_size, num_latents_channels * 4, latent_height, latent_width),
-        key=mx.random.key(seed),
-    ).astype(PRECISION)
-    latent_ids = prepare_grid_ids(latents, t_coord=0)
-    return latents, latent_ids, latent_height, latent_width
+def unpack(tokens: mx.array, height: int, width: int) -> mx.array:
+    """(B, H*W, C) -> (B, C, H, W) — inverse of :func:`pack` for row-major ids."""
+    b, _, c = tokens.shape
+    return tokens.transpose(0, 2, 1).reshape(b, c, height, width)
 
 
-def prepare_packed_latents(
-    seed: int,
-    height: int,
-    width: int,
-    batch_size: int,
-    num_latents_channels: int = 32,
-    vae_scale_factor: int = 8,
-) -> tuple[mx.array, mx.array, int, int]:
-    latents, latent_ids, latent_height, latent_width = prepare_latents(
-        seed=seed,
-        height=height,
-        width=width,
-        batch_size=batch_size,
-        num_latents_channels=num_latents_channels,
-        vae_scale_factor=vae_scale_factor,
-    )
-    return pack_latents(latents), latent_ids, latent_height, latent_width
+def image_ids(height: int, width: int) -> mx.array:
+    """(H*W, 4) ids (0, h, w, 0) in row-major order."""
+    hs = mx.repeat(mx.arange(height), width)
+    ws = mx.tile(mx.arange(width), height)
+    zeros = mx.zeros((height * width,), dtype=hs.dtype)
+    return mx.stack([zeros, hs, ws, zeros], axis=1)
 
 
-def prepare_text_ids(x: mx.array, t_coord: mx.array | None = None) -> mx.array:
-    batch_size, seq_len, _ = x.shape
-    out_ids = []
-    for i in range(batch_size):
-        if t_coord is None:
-            t = mx.zeros((seq_len,), dtype=mx.int32)
-        else:
-            t = t_coord[i]
-            if t.ndim == 0:
-                t = mx.full((seq_len,), t, dtype=mx.int32)
-            elif t.shape[0] != seq_len:
-                t = mx.broadcast_to(t, (seq_len,))
-            t = t.astype(mx.int32)
-        h = mx.zeros((seq_len,), dtype=mx.int32)
-        w = mx.zeros((seq_len,), dtype=mx.int32)
-        token_ids = mx.arange(seq_len, dtype=mx.int32)
-        coords = mx.stack([t, h, w, token_ids], axis=1)
-        out_ids.append(coords)
-    return mx.stack(out_ids, axis=0)
+def text_ids(seq_len: int) -> mx.array:
+    """(S, 4) ids (0, 0, 0, l)."""
+    ls = mx.arange(seq_len)
+    zeros = mx.zeros((seq_len,), dtype=ls.dtype)
+    return mx.stack([zeros, zeros, zeros, ls], axis=1)

@@ -3,8 +3,8 @@
 Our transformer attribute names mirror the diffusers state_dict, so block-internal keys
 (``layers.N.*``, ``noise_refiner.N.*``, ``context_refiner.N.*``) are identity; only a handful
 of top-level embedders/final-layer keys are renamed. The text encoder is the same Qwen3 as
-klein (strip ``model.``); the VAE is a stock AutoencoderKL decoder (keep ``decoder.``, collapse
-``to_out.0`` -> ``to_out``). A returned ``None`` skips the key. Conv layout conversion is the
+klein (``model.*`` mirrored); the VAE is a stock AutoencoderKL decoder (keep ``decoder.*``,
+names mirrored). A returned ``None`` skips the key. Conv layout conversion is the
 loader's job. mlx-free / pure string ops.
 """
 
@@ -36,10 +36,10 @@ def remap_zimage_transformer_key(key: str) -> str | None:
 def remap_zimage_text_encoder_key(key: str) -> str | None:
     if not key.startswith("model."):
         return None  # drop lm_head etc.
-    return key[len("model.") :]
+    return key  # mirrored (the shared Qwen3TextEncoder keeps the model. subtree)
 
 
 def remap_zimage_vae_key(key: str) -> str | None:
     if not key.startswith("decoder."):
         return None  # decode-only: drop encoder / quant convs
-    return key.replace(".to_out.0.", ".to_out.")
+    return key  # mirrored (the shared decoder keeps diffusers names, incl. to_out.0)

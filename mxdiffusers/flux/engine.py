@@ -1,9 +1,14 @@
-"""Flux2KleinEngine: end-to-end klein text-to-image, resident (native MLX).
+"""Flux2KleinEngine: end-to-end FLUX.2-klein text-to-image, resident (native MLX).
 
-Builds the transformer, Qwen3 text encoder, and VAE decoder, stream-loads the real klein
-checkpoint into them (transformer + encoder quantized; VAE kept bf16), and keeps them
-resident so repeated generations are warm. generate() runs tokenize -> encode -> 4-step
-flow-match denoise -> decode -> image.
+Builds the MMDiT transformer, Qwen3 text encoder, and VAE decoder, stream-loads the klein
+checkpoint via mxalloy (transformer + encoder quantized; VAE bf16), and keeps everything
+resident so repeated generations are warm. ``generate()`` mirrors the diffusers reference
+pipeline: chat-template tokenize -> 3-layer stacked Qwen3 embeddings -> empirically-shifted
+flow-match Euler denoise -> BN-denormalize -> unpatchify -> (optionally tiled) VAE decode.
+
+The prompt's context projection inputs and the joint RoPE tables are computed once per
+generation (they are step-constant). Classifier-free guidance runs only when ``guidance > 1``
+(two transformer passes); the distilled klein default is 1.0 (off), matching the reference.
 
 INTERNAL: requires mlx + transformers.
 """
@@ -18,7 +23,7 @@ import numpy as np
 from PIL import Image
 
 from mxalloy.loader import QuantConfig, component_files, load_quantized
-from mxdiffusers.flux.latents import prepare_packed_latents, prepare_text_ids
+from mxdiffusers.flux.latents import image_ids, pack, patchify, text_ids, unpack, unpatchify
 from mxdiffusers.flux.loader import find_klein_model_dir
 from mxdiffusers.flux.scheduler import FlowMatchEulerScheduler
 from mxdiffusers.flux.text_encoder import Qwen3TextEncoder
@@ -31,7 +36,7 @@ from mxdiffusers.flux.weight_mapping import (
     remap_vae_decode_key,
 )
 
-_TEXT_ENCODER_OUT_LAYERS = (9, 18, 27)
+_TEXT_ENCODER_OUT_LAYERS = (9, 18, 27)  # diffusers klein reference: hidden_states[9/18/27]
 
 
 class Flux2KleinEngine:
@@ -50,8 +55,7 @@ class Flux2KleinEngine:
         self.text_encoder = Qwen3TextEncoder()
         self.vae = Flux2VAE()
         quant = QuantConfig(bits=quantize_bits)
-        # Param paths each load left unpopulated — a non-empty set means a remap regression
-        # (unmatched checkpoint keys are dropped without trace; this is the integrity check).
+        # Param paths each load left unpopulated — a non-empty set means a remap regression.
         self.missing = {
             "transformer": load_quantized(
                 self.transformer, component_files(model_dir, "transformer"),
@@ -69,6 +73,10 @@ class Flux2KleinEngine:
         }
         self.tokenizer = KleinTokenizer(Path(model_dir) / "tokenizer")
 
+    def _encode(self, prompt: str) -> mx.array:
+        ids, mask = self.tokenizer.encode(prompt)
+        return self.text_encoder.get_prompt_embeds(ids, mask, _TEXT_ENCODER_OUT_LAYERS)
+
     def generate(
         self,
         prompt: str,
@@ -79,49 +87,46 @@ class Flux2KleinEngine:
         guidance: float = 1.0,
         on_step: Callable[[int, int], None] | None = None,
     ) -> Image.Image:
-        input_ids, attention_mask = self.tokenizer.encode(prompt)
-        prompt_embeds = self.text_encoder.get_prompt_embeds(
-            input_ids, attention_mask, _TEXT_ENCODER_OUT_LAYERS
+        context = self._encode(prompt).astype(mx.bfloat16)
+        cfg = guidance > 1.0
+        if cfg:
+            negative = self._encode("").astype(mx.bfloat16)
+
+        lh, lw = height // 8, width // 8  # 32-ch latent grid; packed grid is half again
+        latents = mx.random.normal(
+            (1, 32, lh, lw), key=mx.random.key(seed), dtype=mx.float32
         )
-        text_ids = prepare_text_ids(prompt_embeds)
+        packed = pack(patchify(latents))  # (1, lh/2*lw/2, 128)
+        img_pos = image_ids(lh // 2, lw // 2)
+        txt_pos = text_ids(context.shape[1])
+        rope = Flux2Transformer.compute_rope(txt_pos, img_pos)  # step-constant
+        sigmas = FlowMatchEulerScheduler.sigmas(steps, packed.shape[1])
+        mx.eval(packed, context, rope[0], rope[1])
 
-        # Reset the exact static-context cache for this generation (FLUX has no lossy cache).
-        if hasattr(self.transformer, "reset_cache"):
-            self.transformer.reset_cache()
-
-        latents, latent_ids, latent_height, latent_width = prepare_packed_latents(
-            seed=seed, height=height, width=width, batch_size=1
-        )
-        image_seq_len = (height // 16) * (width // 16)
-        scheduler = FlowMatchEulerScheduler(num_inference_steps=steps, image_seq_len=image_seq_len)
-
-        for t in range(steps):
-            noise = self.transformer(
-                hidden_states=latents,
-                encoder_hidden_states=prompt_embeds,
-                timestep=scheduler.timesteps[t],
-                img_ids=latent_ids,
-                txt_ids=text_ids,
-                guidance=guidance,
+        for i in range(steps):
+            sigma, sigma_next = float(sigmas[i]), float(sigmas[i + 1])
+            t = mx.full((1,), sigma, dtype=mx.float32)
+            x = packed.astype(mx.bfloat16)
+            velocity = self.transformer(x, t, context, txt_pos, img_pos, rope=rope)
+            if cfg:
+                neg_velocity = self.transformer(x, t, negative, txt_pos, img_pos, rope=rope)
+                velocity = neg_velocity + guidance * (velocity - neg_velocity)
+            packed = FlowMatchEulerScheduler.step(
+                packed, velocity.astype(mx.float32), sigma, sigma_next
             )
-            latents = scheduler.step(noise, t, latents)
-            mx.eval(latents)
+            mx.eval(packed)
             if on_step is not None:
-                on_step(t + 1, steps)
+                on_step(i + 1, steps)
 
-        packed = latents.reshape(1, latent_height, latent_width, latents.shape[-1]).transpose(
-            0, 3, 1, 2
-        )
-        decoded = self.vae.decode_packed_latents(packed, tile_latent=self.vae_tile_latent)
+        grid = unpack(packed, lh // 2, lw // 2)  # (1, 128, lh/2, lw/2)
+        grid = self.vae.bn_denormalize_packed(grid)
+        z = unpatchify(grid).astype(mx.bfloat16)  # (1, 32, lh, lw)
+        decoded = self.vae.decode(z, tile_latent=self.vae_tile_latent)
         mx.eval(decoded)
         return self._to_pil(decoded)
 
     def set_loras(self, loras: list[tuple[str, float]]) -> dict:
-        """Hot-swap the active LoRA set on the resident base (no reload).
-
-        ``loras`` = ``[(safetensors_path, strength), ...]``; pass ``[]`` to clear. Returns a
-        ``{'applied': n, 'skipped': [...]}`` summary. Runtime-applied on the quantized weights.
-        """
+        """Hot-swap active LoRAs on the resident transformer (pass ``[]`` to clear)."""
         from mxdiffusers.flux.lora import apply_loras, load_lora_file
 
         return apply_loras(
@@ -129,14 +134,13 @@ class Flux2KleinEngine:
         )
 
     def clear_loras(self) -> None:
-        """Remove all active LoRAs (restores the base bit-for-bit)."""
+        """Remove all active LoRAs from the resident transformer."""
         from mxdiffusers.flux.lora import clear_loras
 
         clear_loras(self.transformer)
 
     @staticmethod
     def _to_pil(decoded: mx.array) -> Image.Image:
-        x = mx.clip(decoded / 2 + 0.5, 0, 1)
-        x = mx.transpose(x, (0, 2, 3, 1)).astype(mx.float32)
-        arr = (np.array(x) * 255).round().astype(np.uint8)
-        return Image.fromarray(arr[0])
+        x = mx.clip(decoded / 2 + 0.5, 0, 1)  # (B, H, W, 3) NHWC
+        arr = np.array(x[0].astype(mx.float32)) * 255
+        return Image.fromarray(arr.round().astype("uint8"))

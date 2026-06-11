@@ -26,7 +26,7 @@ reading what the checkpoint declares.
 | Architecture | Pipeline | Example checkpoints | Status |
 |---|---|---|---|
 | SDXL | `MXSDXLPipeline` | SDXL Base, SDXL Turbo, SDXL finetunes | **Shipping** — verified vs the diffusers reference |
-| FLUX.2 | `MXFluxPipeline` | FLUX.2-klein-4B | **Shipping** — verified vs mflux |
+| FLUX.2 | `MXFluxPipeline` | FLUX.2-klein-4B | **Shipping** — verified vs the diffusers reference |
 | Z-Image | `MXZimagePipeline` | Z-Image-Turbo-6B | **Shipping** — verified vs the diffusers reference |
 | FLUX.1 | `MXFluxPipeline` (planned) | FLUX.1-schnell / dev / Kontext | Spec'd from the real checkpoint ([flux1/SPEC.md](mxdiffusers/flux/FLUX1_SPEC.md)) — next up |
 | SD3 / SD3.5 | planned | SD3.5 Medium / Large | Blocked on the gated Stability license ([sd3/SPEC.md](mxdiffusers/sd3/SPEC.md)) |
@@ -143,8 +143,8 @@ What each mechanism does:
 Provenance is tracked per family and carried in [`NOTICE`](NOTICE) / [`mxdiffusers/PROVENANCE.md`](mxdiffusers/PROVENANCE.md):
 
 - **`MXSDXLPipeline`** — SDXL Base/Turbo/finetunes (Stability AI weights, RAIL++-M). Independent MLX reimplementation derived from the Apache-2.0 diffusers/transformers references (attributed in `NOTICE`); no mflux lineage. Verified by shape coverage, text-encoder numeric parity, scheduler parity, and a same-latents image comparison against the diffusers pipeline.
-- **`MXFluxPipeline`** — FLUX.2-klein-4B (Black Forest Labs, Apache-2.0 weights). The implementation is a close MLX port of, and verified against, mflux (MIT, attributed in `NOTICE`). Re-deriving these modules independently is on the roadmap.
-- **`MXZimagePipeline`** — Z-Image-Turbo-6B (Alibaba Tongyi, Apache-2.0 weights). The transformer is an independent MLX reimplementation derived from the Apache-2.0 diffusers reference (attributed in `NOTICE`); it currently reuses the FLUX family's Qwen3 text-encoder and VAE-decoder helpers, which carry the port lineage above until they are re-derived.
+- **`MXFluxPipeline`** — FLUX.2-klein-4B (Black Forest Labs, Apache-2.0 weights). Independent MLX reimplementation derived from the Apache-2.0 diffusers reference (attributed in `NOTICE`); verified by component-level numeric parity against the reference transformer and text encoder on the real weights. (Earlier versions were an mflux port — re-derived; see `PROVENANCE.md`.)
+- **`MXZimagePipeline`** — Z-Image-Turbo-6B (Alibaba Tongyi, Apache-2.0 weights). Independent MLX reimplementation derived from the Apache-2.0 diffusers reference (attributed in `NOTICE`), including the shared Qwen3 text encoder and KL decoder it reuses.
 
 We say exactly what each module's lineage is, because that is what makes the Apache-2.0 packaging trustworthy.
 
@@ -180,7 +180,7 @@ All shipping families support hot-swap LoRA via a shared runtime-delta core (`lo
 ## Roadmap
 
 1. **FLUX.1 architecture** (schnell/dev/Kontext) — spec'd from the real checkpoint ([flux1/SPEC.md](mxdiffusers/flux/FLUX1_SPEC.md)). Built lineage-free: a shared T5 encoder, the verified SDXL CLIP-L, and a parameterised shared AutoencoderKL decoder.
-2. **Independent shared modules** — promoting that shared CLIP/T5/VAE work also retires the mflux-lineage helpers from the Z-Image path, and then the FLUX.2 modules get re-derived, retiring the port lineage entirely.
+2. **Shared T5 encoder** for FLUX.1/SD3 — joining the shared CLIP (`sdxl/clip.py`), Qwen3 (`flux/text_encoder.py`), and KL decoder (`vae_kl.py`) modules that all families now draw from.
 3. **SD3/SD3.5** — once the gated Stability license is accepted ([sd3/SPEC.md](mxdiffusers/sd3/SPEC.md)); mostly MMDiT-graph work on top of the shared encoders.
 4. **Qwen-Image (v1.1)** — needs staged execution (encode → free the 7B encoder → denoise the 20B transformer) to fit ≤18 GB machines; the planner's `staged` mode is the vehicle ([qwen_image/SPEC.md](mxdiffusers/qwen_image/SPEC.md)).
 5. **Hybrid per-component precision and `fast` mode** in the planner — designed in [docs/EXECUTION_STRATEGY.md](docs/EXECUTION_STRATEGY.md), gated on benchmarks, not shipped until measured.
@@ -195,4 +195,4 @@ All shipping families support hot-swap LoRA via a shared runtime-delta core (`lo
 
 ## License & provenance
 
-Apache-2.0. The `mxalloy` runtime contains no model code and no third-party lineage. `mxdiffusers/flux` is a close MLX port of mflux (MIT — full notice in [`NOTICE`](NOTICE)); `mxdiffusers/zimage`'s transformer derives from the Apache-2.0 diffusers reference (also in `NOTICE`); see [`mxdiffusers/PROVENANCE.md`](mxdiffusers/PROVENANCE.md) for the precise lineage of every module. Model weights are downloaded by you under their own licenses (both shipped image families use Apache-2.0 weights); mxalloy bundles none.
+Apache-2.0. The `mxalloy` runtime contains no model code and no third-party lineage. Every `mxdiffusers` model family is an independent MLX reimplementation derived from the Apache-2.0 diffusers/transformers references (attributed in [`NOTICE`](NOTICE)); see [`mxdiffusers/PROVENANCE.md`](mxdiffusers/PROVENANCE.md) for the precise lineage and verification of every module, including the FLUX.2 re-derivation history. Model weights are downloaded by you under their own licenses (both shipped image families use Apache-2.0 weights); mxalloy bundles none.

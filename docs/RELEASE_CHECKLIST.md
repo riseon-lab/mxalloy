@@ -54,8 +54,9 @@ verified during the 2026-06-10 distribution-readiness pass; ☐ items are the re
 
 ## Provenance / licensing
 
-- ☑ `NOTICE` carries mflux (MIT) for `mxdiffusers/flux` and diffusers (Apache-2.0) for the
-  Z-Image transformer derivation; no runtime dependency on either
+- ☑ `NOTICE` carries diffusers/transformers (Apache-2.0) for all model families; the FLUX
+  family was re-derived from the diffusers reference (2026-06-11) and carries no mflux
+  lineage (historical note retained in NOTICE); no runtime dependency on either
 - ☑ No "clean-room" overclaim anywhere: Z-Image is described as an independent MLX
   reimplementation derived from the diffusers reference (it was source-grounded)
 - ☑ `PROVENANCE.md` matches the code (the only flux→zimage shared files are the Qwen3 text
@@ -90,7 +91,7 @@ mxdiffusers API stabilising (not yet under the 0.x promise).
 
 1. What it is (two sentences) + the four headline measured numbers
 2. What ships: runtime API, two image families, TTS spike, tester UI (repo-only)
-3. Provenance statement (mflux port lineage, diffusers derivation, Apache-2.0)
+3. Provenance statement (diffusers/transformers derivation, Apache-2.0; FLUX re-derivation history)
 4. Known limitations (above)
 5. Roadmap pointer + how to contribute
 

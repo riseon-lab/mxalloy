@@ -7,38 +7,18 @@ third-party provenance obligations:
 diffusers / transformers
 ------------------------
 
-The Z-Image transformer under `mxdiffusers/zimage` and the SDXL family under
-`mxdiffusers/sdxl` (UNet, CLIP text encoders, AutoencoderKL decoder, Euler scheduler) are
-independent MLX reimplementations derived from the Hugging Face `diffusers` and
-`transformers` reference implementations.
+The model-family implementations under `mxdiffusers/` — the FLUX.2 family (MMDiT
+transformer, Qwen3 text encoder, AutoencoderKLFlux2 decoder, flow-match scheduler), the SDXL
+family (UNet, CLIP text encoders, AutoencoderKL decoder, Euler scheduler), and the Z-Image
+transformer — are independent MLX reimplementations derived from the Hugging Face
+`diffusers` and `transformers` reference implementations.
 
 Upstream: https://github.com/huggingface/diffusers, https://github.com/huggingface/transformers
 Copyright (c) The HuggingFace Team. Licensed under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0). There is no diffusers runtime dependency.
 
-mflux
------
-
-The FLUX family under `mxdiffusers/flux` was developed as a close MLX port of, and verified
-against, mflux. There is no mflux runtime dependency, but while this implementation retains
-that port lineage, keep the following MIT notice with distributions of mxalloy/mxdiffusers.
-
-Upstream: https://github.com/filipstrand/mflux
-
-MIT License
-
-Copyright (c) 2026 Filip Strand
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software
-and associated documentation files (the "Software"), to deal in the Software without
-restriction, including without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
-Software is furnished to do so, subject to the following conditions: The above copyright notice
-and this permission notice shall be included in all copies or substantial portions of the
-Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
-BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+Historical note: prior to 2026-06-11 the FLUX.2 family was an MLX port of mflux
+(MIT, © Filip Strand, https://github.com/filipstrand/mflux) and releases from that period
+carried its MIT notice. Those modules have been re-derived from the diffusers reference and
+verified independently (see `mxdiffusers/PROVENANCE.md`); no mflux-derived code remains in
+the current tree. mflux is still used in benchmarks as a runtime comparison baseline.

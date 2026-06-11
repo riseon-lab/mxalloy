@@ -34,7 +34,9 @@ def _bfl_targets(p: str) -> list[tuple[str, int | None]]:
         return [(f"transformer_blocks.{i}.attn.{n}", k) for k, n in enumerate(names)]
     if m := re.match(r"double_blocks\.(\d+)\.(img|txt)_attn\.proj$", p):
         i, s = m.group(1), m.group(2)
-        return [(f"transformer_blocks.{i}.attn.{'to_out' if s == 'img' else 'to_add_out'}", None)]
+        return [
+            (f"transformer_blocks.{i}.attn.{'to_out.0' if s == 'img' else 'to_add_out'}", None)
+        ]
     if m := re.match(r"double_blocks\.(\d+)\.(img|txt)_mlp\.(\d)$", p):
         i, s, layer = m.group(1), m.group(2), m.group(3)
         ff = "ff" if s == "img" else "ff_context"
@@ -57,9 +59,9 @@ def _bfl_targets(p: str) -> list[tuple[str, int | None]]:
     if p == "final_layer.linear":
         return [("proj_out", None)]
     if p == "time_in.in_layer":
-        return [("time_guidance_embed.linear_1", None)]
+        return [("time_guidance_embed.timestep_embedder.linear_1", None)]
     if p == "time_in.out_layer":
-        return [("time_guidance_embed.linear_2", None)]
+        return [("time_guidance_embed.timestep_embedder.linear_2", None)]
     return []  # unmapped -> skipped (reported by apply_loras)
 
 
