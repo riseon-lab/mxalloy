@@ -4,13 +4,20 @@ Alloy follows semantic versioning, with one explicit promise during the 0.x seri
 
 ## Public API
 
-The public API is:
+The `mxalloy` distribution provides three import packages: `mxalloy` (the runtime),
+`mxdiffusers`, and `mxtts`. The public API is:
 
 - The core loader: `mxalloy.load_quantized`, `mxalloy.QuantConfig`, `mxalloy.component_files`
-- The config dataclasses: `mxalloy.AlloyConfig`, `mxalloy.QuantizationConfig`, `mxalloy.RuntimeConfig`
-- The exception types in `mxalloy.errors`
+- The exception types in `mxalloy.errors` (`AlloyError`, `ConfigurationError`, `ModelLoadError`)
+- The planning surface in `mxalloy.runtime`: `detect_device`, `detect_device_profile`,
+  `DeviceProfile`, `WorkloadSpec`, `ComponentSpec`, `ActivationOption`, `ExecutionStrategy`,
+  `plan_execution`, `estimate_peak_gb`
 
-Everything else is **internal** and may change in any release — all of `mxalloy/attention`, `mxalloy/kernels`, and `mxalloy/runtime`. Model implementations live in the separate `mxdiffusers` package (which depends on mxalloy); mxalloy itself ships no model code.
+Everything else is **internal** and may change in any release — including all of
+`mxalloy/attention` and the `mxdiffusers`/`mxtts` pipeline APIs (`from_pretrained`/`__call__`
+mirror diffusers and are stabilising toward the same promise, but are not yet under it).
+mxalloy itself ships no model code; model implementations live in `mxdiffusers`/`mxtts`,
+which depend on mxalloy — never the reverse.
 
 ## The 0.x Promise: Stable Within Minor
 

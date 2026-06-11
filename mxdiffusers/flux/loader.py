@@ -7,17 +7,11 @@ path lives here. INTERNAL.
 
 from __future__ import annotations
 
-import glob
-from pathlib import Path
+from mxdiffusers.hub import resolve_model_dir
+
+_KLEIN_REPO = "black-forest-labs/FLUX.2-klein-4B"
 
 
-def find_klein_model_dir() -> str:
-    pattern = str(
-        Path.home()
-        / ".cache/huggingface/hub/models--black-forest-labs--FLUX.2-klein-4B"
-        / "snapshots/*"
-    )
-    dirs = sorted(glob.glob(pattern))
-    if not dirs:
-        raise FileNotFoundError("FLUX.2-klein-4B not found in the Hugging Face cache")
-    return dirs[-1]
+def find_klein_model_dir(model_id: str | None = None) -> str:
+    """Resolve ``model_id`` (local dir, HF repo id, or None) to a klein checkpoint dir."""
+    return resolve_model_dir(model_id, default_repo=_KLEIN_REPO)

@@ -16,12 +16,14 @@ import textwrap
 import time
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from functools import partial
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
+
+from mxalloy.runtime import WorkloadSpec, detect_device_profile, plan_execution
 
 Emit = Callable[[str, str, dict[str, Any] | None], Awaitable[None]]
 
@@ -172,59 +174,85 @@ class RealPipelineEngine:
         self,
         model_dir_resolver: Callable[[str], str],
         pipeline_registry: dict[str, str],
+        strategy_registry: dict[str, WorkloadSpec] | None = None,
+        lora_resolver: Callable[[str], str] | None = None,
     ) -> None:
         self.mode = "real"
         self.loaded_model_id: str | None = None
         self.loaded_quant: str | None = None
         self.loaded_memory_mode: str | None = None
+        self.last_strategy: dict[str, Any] | None = None
         self._pipe: Any | None = None
         self._model_dir_resolver = model_dir_resolver
+        self._lora_resolver = lora_resolver or (lambda lora_id: lora_id)
         self._registry = pipeline_registry
+        self._strategies = strategy_registry or {}
+        self._active_lora_key: tuple[tuple[str, str, float], ...] = ()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mxalloy-surface")
 
     async def load(self, model_id: str, quant: str, memory_mode: str, emit: Emit) -> None:
+        strategy, resolved_quant, resolved_memory_mode = self._resolve_strategy(
+            model_id, quant, memory_mode
+        )
         if (
             self._pipe is not None
             and self.loaded_model_id == model_id
-            and self.loaded_quant == quant
-            and self.loaded_memory_mode == memory_mode
+            and self.loaded_quant == resolved_quant
+            and self.loaded_memory_mode == resolved_memory_mode
         ):
             await emit(
                 "ready",
                 "Model already warm",
-                {"model_id": model_id, "memory": self.memory_snapshot()},
+                {
+                    "model_id": model_id,
+                    "quant": resolved_quant,
+                    "memory_mode": resolved_memory_mode,
+                    "strategy": strategy,
+                    "memory": self.memory_snapshot(),
+                },
             )
             return
         if model_id not in self._registry:
             raise ValueError(f"No pipeline registered for model {model_id!r}")
 
-        quant_bits = _quant_bits(quant)
-        tile_latent = _tile_latent(memory_mode)
+        quant_bits = _quant_bits(resolved_quant)
+        # The planner's WorkloadSpec is the source of truth for the VAE tile when a strategy
+        # exists; the memory-mode map is only the fallback for models with no spec.
+        tile_latent = (
+            strategy["vae_tile_latent"] if strategy else _tile_latent(resolved_memory_mode)
+        )
         model_dir = self._model_dir_resolver(model_id)
         await emit(
             "load",
             f"Loading {model_id}",
             {
                 "model_id": model_id,
-                "quant": quant,
-                "memory_mode": memory_mode,
+                "quant": resolved_quant,
+                "memory_mode": resolved_memory_mode,
+                "requested_quant": quant,
+                "requested_memory_mode": memory_mode,
                 "model_dir": model_dir,
+                "strategy": strategy,
                 "memory": self.memory_snapshot(),
             },
         )
         await self._run(self._dispose)
         await self._run(self._build, model_id, model_dir, quant_bits, tile_latent)
         self.loaded_model_id = model_id
-        self.loaded_quant = quant
-        self.loaded_memory_mode = memory_mode
+        self.loaded_quant = resolved_quant
+        self.loaded_memory_mode = resolved_memory_mode
+        self.last_strategy = strategy
         await emit(
             "ready",
             "Pipeline ready",
             {
                 "model_id": model_id,
-                "quant": quant,
-                "memory_mode": memory_mode,
+                "quant": resolved_quant,
+                "memory_mode": resolved_memory_mode,
+                "requested_quant": quant,
+                "requested_memory_mode": memory_mode,
                 "tile_latent": tile_latent,
+                "strategy": strategy,
                 "memory": self.memory_snapshot(),
             },
         )
@@ -236,11 +264,41 @@ class RealPipelineEngine:
         emit: Emit,
     ) -> dict[str, Any]:
         await self.load(req.model_id, req.quant, req.memory_mode, emit)
+        req = replace(
+            req,
+            quant=self.loaded_quant or req.quant,
+            memory_mode=self.loaded_memory_mode or req.memory_mode,
+        )
         loop = asyncio.get_running_loop()
         return await self._run(self._generate_sync, req, output_dir, loop, emit)
 
     def memory_snapshot(self) -> dict[str, Any]:
         return _mlx_memory_snapshot()
+
+    def _resolve_strategy(
+        self,
+        model_id: str,
+        quant: str,
+        memory_mode: str,
+    ) -> tuple[dict[str, Any] | None, str, str]:
+        spec = self._strategies.get(model_id)
+        if spec is None:
+            resolved_quant = "int4" if quant == "auto" else quant
+            resolved_memory_mode = "resident" if memory_mode == "auto" else memory_mode
+            return None, resolved_quant, resolved_memory_mode
+
+        requested_precision = None if quant == "auto" else _precision(quant)
+        requested_memory_mode = None if memory_mode == "auto" else _memory_mode(memory_mode)
+        budget = _env_float("MXALLOY_MEMORY_BUDGET_GB")
+        strategy = plan_execution(
+            detect_device_profile(memory_budget_gb=budget),
+            spec,
+            requested_precision=requested_precision,
+            requested_memory_mode=requested_memory_mode,
+        )
+        if not strategy.fits and (quant == "auto" or memory_mode == "auto"):
+            raise RuntimeError(strategy.reason)
+        return strategy.to_payload(), strategy.precision, strategy.memory_mode
 
     async def _run(self, fn: Callable[..., Any], *args: Any) -> Any:
         loop = asyncio.get_running_loop()
@@ -262,12 +320,55 @@ class RealPipelineEngine:
 
     def _dispose(self) -> None:
         self._pipe = None
+        self._active_lora_key = ()
         try:
             import mlx.core as mx
 
             mx.clear_cache()
         except Exception:
             pass
+
+    def _apply_loras_sync(
+        self,
+        req: GenerationRequest,
+        loop: asyncio.AbstractEventLoop,
+        emit: Emit,
+    ) -> dict[str, Any]:
+        if self._pipe is None:
+            raise RuntimeError("Pipeline is not loaded")
+        active = tuple(
+            (item.id, self._lora_resolver(item.id), float(item.strength))
+            for item in req.loras
+            if item.enabled
+        )
+        if active == self._active_lora_key:
+            return {
+                "active": [{"id": item[0], "strength": item[2]} for item in active],
+                "applied": None,
+                "skipped": [],
+                "unchanged": True,
+            }
+        if not active:
+            if self._active_lora_key:
+                self._pipe.unload_lora_weights()
+                _emit_sync(loop, emit, "lora", "LoRAs cleared", {"active": []})
+            self._active_lora_key = ()
+            return {"active": [], "applied": 0, "skipped": []}
+
+        # set_lora_weights mutates the transformer; invalidate the key first so a failed
+        # apply can't leave a stale key that short-circuits the next identical request.
+        self._active_lora_key = ()
+        summary = self._pipe.set_lora_weights([(path, strength) for _, path, strength in active])
+        applied = int(summary.get("applied", 0))
+        if applied <= 0:
+            raise RuntimeError("Selected LoRAs did not map to any modules in this model")
+        payload = {
+            **summary,
+            "active": [{"id": item[0], "strength": item[2]} for item in active],
+        }
+        _emit_sync(loop, emit, "lora", f"LoRAs active ({applied} layers)", payload)
+        self._active_lora_key = active
+        return payload
 
     def _generate_sync(
         self,
@@ -294,6 +395,7 @@ class RealPipelineEngine:
                 "memory": self.memory_snapshot(),
             },
         )
+        lora_summary = self._apply_loras_sync(req, loop, emit)
 
         def on_step(step: int, total: int) -> None:
             _emit_sync(
@@ -331,6 +433,7 @@ class RealPipelineEngine:
             "memory_mode": req.memory_mode,
             "refs": req.refs,
             "loras": [asdict(item) for item in req.loras],
+            "lora_summary": lora_summary,
             "mock": False,
             "created_at": time.time(),
         }
@@ -420,6 +523,22 @@ def _quant_bits(quant: str) -> int | None:
     raise ValueError(f"Unsupported quant: {quant}")
 
 
+def _precision(quant: str):
+    normalized = quant.lower()
+    if normalized in {"bf16", "int8", "int4"}:
+        return normalized
+    if normalized in {"fp16", "none"}:
+        return "bf16"
+    raise ValueError(f"Unsupported quant: {quant}")
+
+
+def _memory_mode(memory_mode: str):
+    normalized = memory_mode.lower()
+    if normalized in {"resident", "staged", "survival"}:
+        return normalized
+    raise ValueError(f"Unsupported memory mode: {memory_mode}")
+
+
 def _tile_latent(memory_mode: str) -> int | None:
     return {
         "resident": 128,
@@ -486,4 +605,14 @@ def _system_memory_gb() -> float | None:
         page_size = os.sysconf("SC_PAGE_SIZE")
         return round((pages * page_size) / 1024**3, 1)
     except (AttributeError, OSError, ValueError):
+        return None
+
+
+def _env_float(name: str) -> float | None:
+    value = os.environ.get(name)
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
         return None

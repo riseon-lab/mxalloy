@@ -5,7 +5,7 @@ official 🤗 diffusers reference (`huggingface/diffusers@main`:
 `src/diffusers/models/transformers/transformer_z_image.py`,
 `src/diffusers/pipelines/z_image/pipeline_z_image.py`) + the local checkpoint
 `Tongyi-MAI/Z-Image-Turbo` (Apache-2.0). The transformer implementation is independent of
-mflux; the current package reuses shared FLUX-derived Qwen/VAE helpers, so provenance should be
+mflux; the shared Qwen3/VAE helpers were re-derived from the references on 2026-06-11, so the path is
 described as mixed until those helpers are re-derived or split.
 
 ## Architecture family
@@ -78,7 +78,7 @@ Not a dual-stream MMDiT like FLUX.
 
 | Component | Plan |
 |---|---|
-| Qwen3 text encoder | **Reuse** `mxdiffusers/flux/text_encoder.py` for now (same arch, but carries FLUX/mflux port provenance); extract `hidden_states[-2]`, dim 2560. Promote to an independently-derived shared `mxdiffusers/text_encoders/qwen3.py`. |
+| Qwen3 text encoder | **Reuse** `mxdiffusers/flux/text_encoder.py` (independent, transformers-derived since 2026-06-11); extract `hidden_states[-2]`, dim 2560. |
 | Tokenizer | **Reuse** the Qwen2 chat-template tokenizer (`enable_thinking=True`, no layer-stack). |
 | Scheduler | **New small variant**: static-shift flow-match Euler (`σ' = 3σ/(1+2σ)`). |
 | VAE | Z-Image uses flux-dev `AutoencoderKL` (16ch). Current code reuses the compatible FLUX decoder helper; replace with an independently-derived standard AutoencoderKL decoder if we want wholly clean-room Z-Image provenance. |

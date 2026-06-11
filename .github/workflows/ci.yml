@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+
+  # The distribution thesis: tests pass and `import mxalloy` stays mlx-free on a machine
+  # with no mlx at all (mlx-gated tests skip via tests/_mlx.py).
+  test-no-mlx:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - run: python -m pytest
+
+  # Packaging invariant: the built wheel installs into a clean env and imports from a
+  # non-repo cwd, mlx-free, with py.typed shipped.
+  wheel-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - run: pip install dist/*.whl
+      - name: Import smoke from outside the repo
+        run: |
+          cd /tmp
+          python -c "
+          import sys
+          import mxalloy, mxdiffusers, mxtts
+          assert not [m for m in sys.modules if m == 'mlx' or m.startswith('mlx.')]
+          from mxalloy import AlloyError, ConfigurationError, ModelLoadError
+          from mxalloy.runtime import detect_device_profile, plan_execution
+          from mxdiffusers import MXPipeline, MXResult
+          print('wheel import smoke OK')
+          "
+          python -c "
+          import importlib.resources as r
+          assert r.files('mxalloy').joinpath('py.typed').is_file(), 'py.typed missing from wheel'
+          print('py.typed shipped')
+          "
+
+  # The real leg: Apple Silicon runner with mlx installed; full suite + strict mypy on core.
+  test-macos-mlx:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,mlx]"
+      - run: python -m pytest
+      - run: python -m mypy

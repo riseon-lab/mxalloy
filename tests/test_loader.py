@@ -72,6 +72,7 @@ def test_load_quantized_reports_missing(tmp_path):
 
 
 def test_component_files(tmp_path):
+    from mxalloy.errors import ModelLoadError
     from mxalloy.loader import component_files
 
     comp = tmp_path / "transformer"
@@ -79,5 +80,5 @@ def test_component_files(tmp_path):
     (comp / "a.safetensors").write_bytes(b"")
     (comp / "b.safetensors").write_bytes(b"")
     assert len(component_files(tmp_path, "transformer")) == 2
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ModelLoadError):
         component_files(tmp_path, "missing")

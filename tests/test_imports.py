@@ -56,13 +56,7 @@ def test_public_symbols_are_exported() -> None:
     import mxalloy
 
     # Always importable with no mlx dependency.
-    for name in (
-        "AlloyConfig",
-        "QuantizationConfig",
-        "RuntimeConfig",
-        "AlloyError",
-        "ConfigurationError",
-    ):
+    for name in ("AlloyError", "ConfigurationError", "ModelLoadError"):
         assert hasattr(mxalloy, name), name
     # mlx-backed core loader: exposed lazily (resolving these imports mlx), so assert via
     # __all__ rather than forcing the import here.
@@ -71,8 +65,10 @@ def test_public_symbols_are_exported() -> None:
 
 
 def test_detect_device_returns_structured_result() -> None:
-    from mxalloy.runtime import detect_device
+    from mxalloy.runtime import detect_device, detect_device_profile
 
     device = detect_device()
     assert isinstance(device.machine, str)
     assert isinstance(device.is_apple_silicon, bool)
+    profile = detect_device_profile()
+    assert profile.working_set_gb >= 0.0

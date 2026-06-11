@@ -12,6 +12,24 @@ mlx-free, core↛models boundary holds, mflux not a runtime import, no secrets/w
 the streaming-load/tiled-VAE/LoRA engine is real and beats the reference). The gaps are
 **attribution, packaging hygiene, doc honesty, and automation** — not the code.
 
+## 2026-06-10 Review Update — blockers cleared
+
+All nine blockers are now resolved; the remaining gate lives in `docs/RELEASE_CHECKLIST.md`.
+
+- **B7 fixed**: `component_files`/`load_quantized` raise `ModelLoadError`; the planner and
+  `detect_device_profile` raise `ConfigurationError`; never-raised types (Quantization/
+  IncompatibleLoRA/UnsupportedHardware) deleted; `docs/ERRORS.md` rewritten to match.
+- **B8 fixed**: dead `AlloyConfig`/`QuantizationConfig`/`RuntimeConfig` deleted along with
+  `kernels/`, `runtime/scheduler.py`, `utils/`; VERSIONING blesses the real surface
+  (loader + errors + runtime planning).
+- **B9 fixed**: `.github/workflows/ci.yml` — lint, ubuntu-no-mlx pytest (3.11/3.12),
+  wheel-build + twine + clean-env install smoke, macOS+mlx pytest + strict mypy.
+- Should-fixes closed: phantom deps removed (diffusers, hf-hub, packaging, safetensors,
+  tqdm), classifiers/keywords added, `mlx>=0.31` floor, `py.typed` shipped (core is
+  mypy-strict clean), README rewritten (logo absolute URL, attention/tiling claims
+  corrected, quickstart works via the new HF-cache resolver in `mxdiffusers/hub.py`).
+- Open decision 3 (author identity) remains the maintainer's; see RELEASE_CHECKLIST.
+
 ## 2026-06-05 Review Update
 
 - Root `NOTICE` now carries the mflux MIT notice for the FLUX port lineage.

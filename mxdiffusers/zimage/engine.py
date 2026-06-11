@@ -10,7 +10,6 @@ INTERNAL: requires mlx + transformers.
 
 from __future__ import annotations
 
-import glob
 from collections.abc import Callable
 from pathlib import Path
 
@@ -21,6 +20,7 @@ from transformers import AutoTokenizer
 
 from mxalloy.loader import QuantConfig, component_files, load_quantized
 from mxdiffusers.flux.text_encoder import Qwen3TextEncoder
+from mxdiffusers.hub import resolve_model_dir
 from mxdiffusers.zimage.transformer import ZImageTransformer
 from mxdiffusers.zimage.vae import ZImageVAE
 from mxdiffusers.zimage.weight_mapping import (
@@ -33,19 +33,16 @@ _HIDDEN_LAYER = -2  # diffusers ZImagePipeline uses text_encoder hidden_states[-
 _STATIC_SHIFT = 3.0
 
 
+_ZIMAGE_REPO = "Tongyi-MAI/Z-Image-Turbo"
+
+
 def find_zimage_model_dir() -> str:
-    pattern = str(
-        Path.home() / ".cache/huggingface/hub/models--Tongyi-MAI--Z-Image-Turbo/snapshots/*"
-    )
-    dirs = sorted(glob.glob(pattern))
-    if not dirs:
-        raise FileNotFoundError("Z-Image-Turbo not found in the Hugging Face cache")
-    return dirs[-1]
+    return resolve_model_dir(None, default_repo=_ZIMAGE_REPO)
 
 
 class ZImageEngine:
     def __init__(self, model_dir: str | None = None, quantize_bits: int | None = 4):
-        model_dir = model_dir or find_zimage_model_dir()
+        model_dir = resolve_model_dir(model_dir, default_repo=_ZIMAGE_REPO)
         self.transformer = ZImageTransformer()
         self.text_encoder = Qwen3TextEncoder()
         self.vae = ZImageVAE()
@@ -120,6 +117,20 @@ class ZImageEngine:
         decoded = self.vae.decode(latents.astype(mx.bfloat16))
         mx.eval(decoded)
         return self._to_pil(decoded)
+
+    def set_loras(self, loras: list[tuple[str, float]]) -> dict:
+        """Hot-swap active LoRAs on the resident Z-Image transformer."""
+        from mxdiffusers.zimage.lora import apply_loras, load_lora_file
+
+        return apply_loras(
+            self.transformer, [(load_lora_file(path), float(strength)) for path, strength in loras]
+        )
+
+    def clear_loras(self) -> None:
+        """Remove all active LoRAs from the resident Z-Image transformer."""
+        from mxdiffusers.zimage.lora import clear_loras
+
+        clear_loras(self.transformer)
 
     @staticmethod
     def _to_pil(decoded: mx.array) -> Image.Image:

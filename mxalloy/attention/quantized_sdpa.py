@@ -9,7 +9,9 @@ workloads where that transient dequant spike dominates.
 Scope note (measured): this does **not** speed up the current klein 4-step txt2img path.
 That path has no KV cache (the diffusion transformer recomputes Q/K/V every step) and is
 GEMM-bound -- attention is ~0.7% of a step. The fused kernel pays off where attention is a
-real memory/latency cost: autoregressive decode, long context, and continuous batching.
+real memory/latency cost: autoregressive decode, long context, and continuous batching. Do
+not route klein through this path; quantizing one-use K/V would add overhead for no useful
+cache win.
 
 Two backends behind one API:
 
@@ -28,9 +30,12 @@ INTERNAL: requires mlx. The pure-MLX fallback needs no Metal toolchain.
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import mlx.core as mx
+
+# mx.fast SDPA mask forms: dense/boolean array, "causal", or no mask.
+Mask = mx.array | str | None
 
 
 class QuantizedKV(NamedTuple):
@@ -50,13 +55,14 @@ class QuantizedKV(NamedTuple):
 # research/attention_kernel, needs the Metal toolchain) and dropped next to this module.
 # Degrade to the pure-MLX fallback when it isn't there -- the shipped default. The hasattr
 # guard rejects a stray namespace package and only accepts a real compiled module.
+_compiled: Any = None
 try:
-    from mxalloy.attention import _ext as _compiled  # type: ignore
+    from mxalloy.attention import _ext as _compiled_ext
 
-    if not hasattr(_compiled, "quantized_scaled_dot_product_attention"):
-        _compiled = None
+    if hasattr(_compiled_ext, "quantized_scaled_dot_product_attention"):
+        _compiled = _compiled_ext
 except Exception:  # noqa: BLE001
-    _compiled = None
+    pass
 
 
 def quantize_kv(x: mx.array, group_size: int = 64, bits: int = 8) -> QuantizedKV:
@@ -69,7 +75,9 @@ def _dequant(t: QuantizedKV) -> mx.array:
     return mx.dequantize(t.weights, t.scales, t.biases, group_size=t.group_size, bits=t.bits)
 
 
-def _fallback(q: mx.array, k: QuantizedKV, v: QuantizedKV, *, scale: float, mask) -> mx.array:
+def _fallback(
+    q: mx.array, k: QuantizedKV, v: QuantizedKV, *, scale: float, mask: Mask
+) -> mx.array:
     # Materialises dequantized K/V (the spike the kernel avoids), then the fused MLX SDPA.
     return mx.fast.scaled_dot_product_attention(
         q, _dequant(k), _dequant(v), scale=scale, mask=mask
@@ -89,7 +97,7 @@ def quantized_scaled_dot_product_attention(
     v: QuantizedKV,
     *,
     scale: float,
-    mask=None,
+    mask: Mask = None,
     prefer_kernel: bool = True,
 ) -> mx.array:
     """``O = softmax(Q Kᵀ · scale) V`` with K, V supplied in quantized group format.
@@ -105,7 +113,7 @@ def quantized_scaled_dot_product_attention(
         ``(B, H, L, D)`` dense output.
     """
     if prefer_kernel and kernel_available(q.dtype, q.shape[-1], k, mask is not None):
-        return _compiled.quantized_scaled_dot_product_attention(
+        out: mx.array = _compiled.quantized_scaled_dot_product_attention(
             q,
             k.weights,
             k.scales,
@@ -118,4 +126,5 @@ def quantized_scaled_dot_product_attention(
             bits=k.bits,
             mask=mask,
         )
+        return out
     return _fallback(q, k, v, scale=scale, mask=mask)

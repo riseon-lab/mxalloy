@@ -8,7 +8,7 @@ the top-level ``import mxalloy`` remains mlx-free.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 __all__ = ["QuantizedKV", "quantize_kv", "quantized_scaled_dot_product_attention"]
 
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     )
 
 
-def __getattr__(name: str):  # PEP 562: lazy, mlx-only-on-use
+def __getattr__(name: str) -> Any:  # PEP 562: lazy, mlx-only-on-use
     if name in __all__:
         from mxalloy.attention import quantized_sdpa
 

@@ -1,20 +1,21 @@
-"""Flow-match Euler discrete scheduler for FLUX.2-klein (ported from mflux; see PROVENANCE.md).
+"""Flow-match Euler scheduler for FLUX.2-klein, native MLX.
 
-klein is ``requires_sigma_shift=True``, so timesteps/sigmas use the resolution-dependent
-empirical-mu shift (a function of the image sequence length). The denoise step is a plain
-Euler update: ``latents + (sigma[t+1] - sigma[t]) * noise``.
-
-INTERNAL: not part of the public API; requires mlx.
+Published flow-matching math with the klein pipeline's empirical resolution/step-dependent
+shift (constants from the diffusers reference pipeline, Apache-2.0): sigmas run linspace
+(1 -> 1/N), exponentially time-shifted by mu, terminal 0; one Euler step is
+``x += (sigma_next - sigma) * v``. The model timestep is the current sigma (the transformer
+scales by 1000 internally). INTERNAL.
 """
 
 from __future__ import annotations
 
+import math
+
 import mlx.core as mx
 
-NUM_TRAIN_TIMESTEPS = 1000
 
-
-def _empirical_mu(image_seq_len: int, num_steps: int) -> float:
+def compute_empirical_mu(image_seq_len: int, num_steps: int) -> float:
+    """klein's measured shift schedule (reference-pipeline constants)."""
     a1, b1 = 8.73809524e-05, 1.89833333
     a2, b2 = 0.00016927, 0.45666666
     if image_seq_len > 4300:
@@ -27,18 +28,14 @@ def _empirical_mu(image_seq_len: int, num_steps: int) -> float:
 
 
 class FlowMatchEulerScheduler:
-    def __init__(
-        self,
-        num_inference_steps: int,
-        image_seq_len: int,
-        num_train_timesteps: int = NUM_TRAIN_TIMESTEPS,
-    ):
-        sigmas = mx.linspace(1.0, 1.0 / num_inference_steps, num_inference_steps, dtype=mx.float32)
-        mu = _empirical_mu(image_seq_len, num_inference_steps)
-        sigmas = mx.exp(mu) / (mx.exp(mu) + (1.0 / sigmas - 1.0))
-        self.timesteps = sigmas * num_train_timesteps
-        self.sigmas = mx.concatenate([sigmas, mx.zeros((1,), dtype=sigmas.dtype)])
+    @staticmethod
+    def sigmas(num_steps: int, image_seq_len: int) -> mx.array:
+        """(N+1,) exponentially-shifted sigmas, terminal 0."""
+        s = mx.linspace(1.0, 1.0 / num_steps, num_steps)
+        mu = compute_empirical_mu(image_seq_len, num_steps)
+        s = math.exp(mu) / (math.exp(mu) + (1.0 / s - 1.0))
+        return mx.concatenate([s, mx.zeros((1,))])
 
-    def step(self, noise: mx.array, timestep: int, latents: mx.array) -> mx.array:
-        dt = (self.sigmas[timestep + 1] - self.sigmas[timestep]).astype(latents.dtype)
-        return latents + dt * noise.astype(latents.dtype)
+    @staticmethod
+    def step(sample: mx.array, velocity: mx.array, sigma: float, sigma_next: float) -> mx.array:
+        return sample + (sigma_next - sigma) * velocity
