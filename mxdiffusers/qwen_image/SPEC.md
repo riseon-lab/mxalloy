@@ -1,7 +1,8 @@
 # Qwen-Image (QwenImagePipeline) — implementation spec
 
 **Status: planned (v1.1, nice-to-have).** Config facts below are from the real
-`Qwen/Qwen-Image` checkpoint (already in the dev machine's HF cache, 45 GB).
+`Qwen/Qwen-Image` checkpoint (captured 2026-06-11; the 45 GB weights were then removed
+from the dev machine's HF cache to free disk — re-download when implementation starts).
 `MXAutoPipeline` recognizes `QwenImagePipeline` and reports this status.
 
 ## Checkpoint facts

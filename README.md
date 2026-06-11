@@ -28,7 +28,7 @@ reading what the checkpoint declares.
 | SDXL | `MXSDXLPipeline` | SDXL Base, SDXL Turbo, SDXL finetunes | **Shipping** — verified vs the diffusers reference |
 | FLUX.2 | `MXFluxPipeline` | FLUX.2-klein-4B | **Shipping** — verified vs mflux |
 | Z-Image | `MXZimagePipeline` | Z-Image-Turbo-6B | **Shipping** — verified vs the diffusers reference |
-| FLUX.1 | planned | FLUX.1-schnell / dev / Kontext | Spec'd from the real checkpoint ([flux1/SPEC.md](mxdiffusers/flux1/SPEC.md)) — next up |
+| FLUX.1 | `MXFluxPipeline` (planned) | FLUX.1-schnell / dev / Kontext | Spec'd from the real checkpoint ([flux1/SPEC.md](mxdiffusers/flux/FLUX1_SPEC.md)) — next up |
 | SD3 / SD3.5 | planned | SD3.5 Medium / Large | Blocked on the gated Stability license ([sd3/SPEC.md](mxdiffusers/sd3/SPEC.md)) |
 | Qwen-Image | planned (v1.1) | Qwen-Image 20B | Needs staged execution on ≤18 GB ([qwen_image/SPEC.md](mxdiffusers/qwen_image/SPEC.md)) |
 
@@ -161,7 +161,7 @@ All shipping families support hot-swap LoRA via a shared runtime-delta core (`lo
 ## Repository map
 
 - [`mxalloy/`](mxalloy/) — the runtime (public API: `load_quantized`, `QuantConfig`, `component_files`, `mxalloy.errors`, `mxalloy.runtime` planning — see [docs/VERSIONING.md](docs/VERSIONING.md))
-- [`mxdiffusers/`](mxdiffusers/) — `MXPipeline` base, `MXAutoPipeline` router, shared LoRA core + `sdxl/`, `flux/`, `zimage/` families (and `flux1/`, `sd3/`, `qwen_image/` specs)
+- [`mxdiffusers/`](mxdiffusers/) — `MXPipeline` base, `MXAutoPipeline` router, shared LoRA core + `sdxl/`, `flux/`, `zimage/` families (plus `sd3/`, `qwen_image/` specs and the family's `FLUX1_SPEC.md`)
 - [`mxtts/`](mxtts/) — `MXTTSPipeline` base + `miso/` (hybrid upstream adapter; native MLX backend tracked in [docs/MISO_TTS_PLAN.md](docs/MISO_TTS_PLAN.md))
 - [`surface/`](surface/) — repo-local tester UI (`pip install -e ".[mlx,surface]"`)
 - [`benchmarks/`](benchmarks/), [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — repeatable benchmark scripts and measured results
@@ -179,7 +179,7 @@ All shipping families support hot-swap LoRA via a shared runtime-delta core (`lo
 
 ## Roadmap
 
-1. **FLUX.1 architecture** (schnell/dev/Kontext) — spec'd from the real checkpoint ([flux1/SPEC.md](mxdiffusers/flux1/SPEC.md)). Built lineage-free: a shared T5 encoder, the verified SDXL CLIP-L, and a parameterised shared AutoencoderKL decoder.
+1. **FLUX.1 architecture** (schnell/dev/Kontext) — spec'd from the real checkpoint ([flux1/SPEC.md](mxdiffusers/flux/FLUX1_SPEC.md)). Built lineage-free: a shared T5 encoder, the verified SDXL CLIP-L, and a parameterised shared AutoencoderKL decoder.
 2. **Independent shared modules** — promoting that shared CLIP/T5/VAE work also retires the mflux-lineage helpers from the Z-Image path, and then the FLUX.2 modules get re-derived, retiring the port lineage entirely.
 3. **SD3/SD3.5** — once the gated Stability license is accepted ([sd3/SPEC.md](mxdiffusers/sd3/SPEC.md)); mostly MMDiT-graph work on top of the shared encoders.
 4. **Qwen-Image (v1.1)** — needs staged execution (encode → free the 7B encoder → denoise the 20B transformer) to fit ≤18 GB machines; the planner's `staged` mode is the vehicle ([qwen_image/SPEC.md](mxdiffusers/qwen_image/SPEC.md)).

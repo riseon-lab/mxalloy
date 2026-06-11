@@ -2,8 +2,8 @@
 
 **Status: planned, next architecture up.** Config facts below are from the real
 `black-forest-labs/FLUX.1-schnell` checkpoint (fetched 2026-06-11); weights are not yet
-downloaded on the dev machine (~33 GB). `MXAutoPipeline` recognizes `FluxPipeline` /
-`FluxKontextPipeline` and reports this status.
+downloaded on the dev machine (~33 GB). `MXFluxPipeline` (the FLUX family front door) and `MXAutoPipeline` both detect
+`FluxPipeline` / `FluxKontextPipeline` checkpoints and report this status.
 
 Covers the architecture: FLUX.1-schnell (Apache-2.0), FLUX.1-dev (non-commercial license,
 gated), FLUX.1-Kontext, and finetunes.

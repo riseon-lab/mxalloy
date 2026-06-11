@@ -17,11 +17,15 @@ from typing import Any
 from mxalloy.errors import ModelLoadError
 from mxdiffusers.hub import resolve_model_dir
 
-# diffusers pipeline _class_name -> implemented MX pipeline (module:Class)
+# diffusers pipeline _class_name -> the MX architecture-family pipeline (module:Class).
+# The FLUX family class owns generation handling itself: FLUX.2 runs, FLUX.1 reports its
+# planned status — so all Flux* names route to it.
 _PIPELINES: dict[str, str] = {
     "StableDiffusionXLPipeline": "mxdiffusers.sdxl.pipeline:MXSDXLPipeline",
     "ZImagePipeline": "mxdiffusers.zimage.pipeline:MXZimagePipeline",
     "Flux2Pipeline": "mxdiffusers.flux.pipeline:MXFluxPipeline",
+    "FluxPipeline": "mxdiffusers.flux.pipeline:MXFluxPipeline",
+    "FluxKontextPipeline": "mxdiffusers.flux.pipeline:MXFluxPipeline",
 }
 # denoiser config _class_name -> implemented MX pipeline (component-only snapshots)
 _DENOISERS: dict[str, str] = {
@@ -31,8 +35,6 @@ _DENOISERS: dict[str, str] = {
 }
 # recognized but not implemented -> honest status in the error message
 _PLANNED: dict[str, str] = {
-    "FluxPipeline": "FLUX.1 (schnell/dev/Kontext) — planned; see mxdiffusers/flux1/SPEC.md",
-    "FluxKontextPipeline": "FLUX.1 Kontext — planned; see mxdiffusers/flux1/SPEC.md",
     "StableDiffusion3Pipeline": "SD3 / SD3.5 — planned; see mxdiffusers/sd3/SPEC.md",
     "QwenImagePipeline": "Qwen-Image — planned; see mxdiffusers/qwen_image/SPEC.md",
     "StableDiffusionPipeline": "SD 1.5/2.x — not planned for v1",

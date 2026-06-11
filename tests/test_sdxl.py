@@ -124,3 +124,16 @@ def test_auto_rejects_unimplemented_with_status(tmp_path) -> None:
     )
     with pytest.raises(ModelLoadError, match="planned"):
         MXAutoPipeline.from_pretrained(str(tmp_path))
+
+
+def test_flux_family_front_door_reports_flux1_status(tmp_path) -> None:
+    # MXFluxPipeline is the FLUX *family* class: a FLUX.1-generation checkpoint must get a
+    # planned-status error, not a klein-shaped loading crash. Detection is mlx-free.
+    import pytest
+
+    from mxalloy.errors import ModelLoadError
+    from mxdiffusers.flux.pipeline import MXFluxPipeline
+
+    (tmp_path / "model_index.json").write_text(json.dumps({"_class_name": "FluxPipeline"}))
+    with pytest.raises(ModelLoadError, match="FLUX.1"):
+        MXFluxPipeline.from_pretrained(str(tmp_path))
