@@ -52,6 +52,18 @@ def test_import_miso_pipeline_is_heavy_dependency_free() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
+def test_family_lora_key_mapping_modules_are_mlx_free() -> None:
+    # The pure key-mapping halves of the family LoRA modules must import without mlx —
+    # their tests run on the no-mlx CI leg (this is the invariant that leg once caught).
+    result = _run(
+        "import mxdiffusers.flux.lora, mxdiffusers.sdxl.lora, mxdiffusers.zimage.lora; "
+        "import sys; "
+        "leaked = sorted(m for m in sys.modules if m == 'mlx' or m.startswith('mlx.')); "
+        "assert not leaked, leaked"
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
 def test_public_symbols_are_exported() -> None:
     import mxalloy
 

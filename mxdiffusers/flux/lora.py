@@ -4,20 +4,19 @@ Handles the diffusion_model / ComfyUI-BFL key convention (the common klein LoRA 
 including the fused-QKV -> split ``to_q/to_k/to_v`` mapping onto our diffusers-named modules.
 Other conventions (diffusers/peft-prefixed, kohya-flattened) are TODO.
 
-INTERNAL: requires mlx.
+Importing this module is mlx-free (the key mapping is pure and tested without mlx); the
+shared core loads lazily on use. INTERNAL.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mlx import nn
+if TYPE_CHECKING:
+    from mxdiffusers.lora import clear_loras, load_lora_file
 
-from mxdiffusers.lora import LoRALinear, clear_loras, load_lora_file
-from mxdiffusers.lora import apply_loras as _apply_loras
-
-__all__ = ["LoRALinear", "apply_loras", "clear_loras", "load_lora_file"]
+__all__ = ["apply_loras", "clear_loras", "load_lora_file"]
 
 
 def _bfl_targets(p: str) -> list[tuple[str, int | None]]:
@@ -70,6 +69,16 @@ def _targets_for_base(base: str) -> tuple[list[tuple[str, int | None]], str]:
     return _bfl_targets(p), p
 
 
-def apply_loras(transformer: nn.Module, loras: list[tuple[dict[str, Any], float]]) -> dict:
-    """Replace all active LoRA deltas on the resident FLUX transformer (hot-swap)."""
+def apply_loras(transformer: Any, loras: list[tuple[dict[str, Any], float]]) -> dict:
+    """Replace all active LoRA deltas on the resident FLUX transformer. Requires mlx."""
+    from mxdiffusers.lora import apply_loras as _apply_loras
+
     return _apply_loras(transformer, loras, targets_for_base=_targets_for_base)
+
+
+def __getattr__(name: str) -> Any:  # PEP 562: shared-core re-exports, mlx-only-on-use
+    if name in {"LoRALinear", "clear_loras", "load_lora_file"}:
+        from mxdiffusers import lora as _core
+
+        return getattr(_core, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

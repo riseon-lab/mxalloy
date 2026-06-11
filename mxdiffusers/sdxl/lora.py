@@ -5,25 +5,18 @@ module tree mirrors the diffusers state_dict exactly, mapping is prefix-strippin
 Linear-target whitelist. Text-encoder LoRA keys and kohya-flattened (``lora_unet_…``
 underscore) names are documented TODOs.
 
-INTERNAL: requires mlx (except :func:`target_paths_for_lora_base`, which is pure).
+Importing this module is mlx-free (the key mapping is pure and tested without mlx); the
+shared core loads lazily on use. INTERNAL.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mlx import nn
+if TYPE_CHECKING:
+    from mxdiffusers.lora import clear_loras, load_lora_file
 
-from mxdiffusers.lora import LoRALinear, clear_loras, load_lora_file
-from mxdiffusers.lora import apply_loras as _apply_loras
-
-__all__ = [
-    "LoRALinear",
-    "apply_loras",
-    "clear_loras",
-    "load_lora_file",
-    "target_paths_for_lora_base",
-]
+__all__ = ["apply_loras", "clear_loras", "load_lora_file", "target_paths_for_lora_base"]
 
 _PREFIXES = ("base_model.model.", "unet.", "model.")
 
@@ -73,6 +66,16 @@ def _targets_for_base(base: str) -> tuple[list[tuple[str, int | None]], str]:
     return [(p, None) for p in target_paths_for_lora_base(base)], _strip_prefixes(base)
 
 
-def apply_loras(unet: nn.Module, loras: list[tuple[dict[str, Any], float]]) -> dict:
-    """Replace active LoRA deltas on the resident SDXL UNet (hot-swap)."""
+def apply_loras(unet: Any, loras: list[tuple[dict[str, Any], float]]) -> dict:
+    """Replace active LoRA deltas on the resident SDXL UNet (hot-swap). Requires mlx."""
+    from mxdiffusers.lora import apply_loras as _apply_loras
+
     return _apply_loras(unet, loras, targets_for_base=_targets_for_base)
+
+
+def __getattr__(name: str) -> Any:  # PEP 562: shared-core re-exports, mlx-only-on-use
+    if name in {"LoRALinear", "clear_loras", "load_lora_file"}:
+        from mxdiffusers import lora as _core
+
+        return getattr(_core, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

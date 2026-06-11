@@ -4,26 +4,20 @@ Accepts common diffusers/PEFT-style safetensors keys and maps them onto the nati
 ``ZImageTransformer`` module paths. LoRA tensors stay separate from the quantized base
 weights, so adapters hot-swap without reloading the 6B model.
 
-INTERNAL: requires mlx (except :func:`target_paths_for_lora_base`, which is pure).
+Importing this module is mlx-free (the key mapping is pure and tested without mlx); the
+shared core loads lazily on use. INTERNAL.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from mlx import nn
-
-from mxdiffusers.lora import LoRALinear, clear_loras, load_lora_file
-from mxdiffusers.lora import apply_loras as _apply_loras
 from mxdiffusers.zimage.weight_mapping import remap_zimage_transformer_key
 
-__all__ = [
-    "LoRALinear",
-    "apply_loras",
-    "clear_loras",
-    "load_lora_file",
-    "target_paths_for_lora_base",
-]
+if TYPE_CHECKING:
+    from mxdiffusers.lora import clear_loras, load_lora_file
+
+__all__ = ["apply_loras", "clear_loras", "load_lora_file", "target_paths_for_lora_base"]
 
 _PREFIXES = (
     "base_model.model.",
@@ -93,6 +87,16 @@ def _targets_for_base(base: str) -> tuple[list[tuple[str, int | None]], str]:
     return [(p, None) for p in target_paths_for_lora_base(base)], _strip_prefixes(base)
 
 
-def apply_loras(transformer: nn.Module, loras: list[tuple[dict[str, Any], float]]) -> dict:
-    """Replace active LoRA deltas on the resident Z-Image transformer (hot-swap)."""
+def apply_loras(transformer: Any, loras: list[tuple[dict[str, Any], float]]) -> dict:
+    """Replace active LoRA deltas on the resident Z-Image transformer. Requires mlx."""
+    from mxdiffusers.lora import apply_loras as _apply_loras
+
     return _apply_loras(transformer, loras, targets_for_base=_targets_for_base)
+
+
+def __getattr__(name: str) -> Any:  # PEP 562: shared-core re-exports, mlx-only-on-use
+    if name in {"LoRALinear", "clear_loras", "load_lora_file"}:
+        from mxdiffusers import lora as _core
+
+        return getattr(_core, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
